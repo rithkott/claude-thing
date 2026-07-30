@@ -3,7 +3,7 @@ name: deploy-to-dev
 description: Deploy the latest Car Thing firmware plus the Claude mode app to the local dev emulator, starting the host daemon too. Trigger on "deploy to dev", "deploy dev", "run the emulator", "test on the emulator", "open the car thing", "spin up the car thing".
 ---
 
-Run (from the project root `/Users/rithvikkottapalli/Desktop/Projects/claude-thing`):
+Run (from the repo root):
 
 ```bash
 node emulator/scripts/deploy-dev.js

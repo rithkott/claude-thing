@@ -5,10 +5,10 @@ grafts `switch.js` into the built music UI, and holding preset 1 + preset 4 for
 one second toggles between `/` and `/claude/`. This patch is for users who build
 nocturne-ui from source anyway and want a visible menu entry too.
 
-Apply in the nocturne workspace:
+Apply in a checkout of https://github.com/usenocturne/nocturne-ui:
 
-    cd ~/Desktop/Projects/nocturne/nocturne-ui
-    git apply ../../claude-thing/patches/nocturne-ui-claude-mode.patch
+    cd /path/to/nocturne-ui
+    git apply /path/to/claude-thing/patches/nocturne-ui-claude-mode.patch
 
 Two edits in `src/components/settings/Settings.jsx`, both mirroring the existing
 `factory-reset` action item:

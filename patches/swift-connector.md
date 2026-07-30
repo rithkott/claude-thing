@@ -4,7 +4,8 @@ Adds a Claude Mode relay to the Swift Nocturne app so the Car Thing can reach
 the claude-thing daemon over the existing Bluetooth link. Three edits plus one
 new file; nothing about the existing music/Spotify surface changes.
 
-Repo: `~/Desktop/Projects/nocturne/nocturne-connector/macos/Nocturne/`
+Repo: [`usenocturne/nocturne-connector`](https://github.com/usenocturne/nocturne-connector),
+under `macos/Nocturne/`. Clone it, apply the four edits below, and build in Xcode.
 
 The relay is a WebSocket **client** of the daemon (`ws://127.0.0.1:8790/ws`),
 not a server: one socket carries request dispatch, event push, and status

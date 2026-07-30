@@ -6,10 +6,10 @@ call claude.* on the Mac daemon (via the Nocturne connector's relay), so add one
 match-guard arm ahead of the default. Events flowing the other way (phone → UI)
 already pass through verbatim and need no change.
 
-Apply in the nocturne workspace:
+Apply in a checkout of https://github.com/usenocturne/nocturned:
 
-    cd ~/Desktop/Projects/nocturne/nocturned
-    git apply ../../claude-thing/patches/nocturned-claude-forward.patch
+    cd /path/to/nocturned
+    git apply /path/to/claude-thing/patches/nocturned-claude-forward.patch
 
 --- a/src/app/websocket_handler.rs
 +++ b/src/app/websocket_handler.rs

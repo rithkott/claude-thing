@@ -1,5 +1,10 @@
 # claude-thing
 
+> **A fork of [Nocturne](https://github.com/usenocturne/nocturne) 4.0**, the
+> custom Car Thing firmware by [usenocturne](https://github.com/usenocturne).
+> Nothing Nocturne does is removed — this adds a second mode alongside it and
+> ships the changes as patches against the upstream repos.
+
 Turn a Spotify Car Thing into a desk monitor for Claude Code: every session at a
 glance, a queue of everything waiting on you, live usage bars, and permission
 approve/deny from the dial.
@@ -44,7 +49,7 @@ sticky across reboots.
 Requires macOS, **Node 18+**, and Claude Code on your `PATH`.
 
 ```sh
-git clone <your-fork-url> claude-thing
+git clone https://github.com/rithkott/claude-thing.git
 cd claude-thing
 ./mac/install.sh
 ```
@@ -80,55 +85,112 @@ clickable Car Thing faceplate rendered 1:1 at 800×480.
 
 ---
 
-## Flashing the firmware
+## Build and install on the hardware
 
-The device runs Nocturne with the Claude app added alongside it. You need a
-Nocturne firmware zip (from [Nocturne releases](https://github.com/usenocturne/nocturne/releases)
-or your own build) — the ones containing `system_a.ext2`.
+The device ends up running Nocturne with the Claude app added alongside it, and
+the Mac ends up running Nocturne.app with a small relay added to it. Nothing here
+replaces Nocturne — every step below starts from an upstream artifact and adds to
+it.
 
-**1. Build the Claude app and inject it into the zip.**
+### What you need first
+
+| | |
+|---|---|
+| A Car Thing | already unbrickable/flashable — [Terbium](https://terbium.app) in Chrome handles the flash itself |
+| A Nocturne firmware zip | from [Nocturne releases](https://github.com/usenocturne/nocturne/releases), or your own Buildroot build. Must be a zip containing `system_a.ext2` (that's the Terbium-style package, not a `.swu`) |
+| macOS | Node 18+, `brew install e2fsprogs` (the injector needs `debugfs`), Chrome for Terbium's WebUSB |
+| Xcode | only for step 4, the connector relay |
+
+Steps 1 and 4 are the minimum for a working device. Step 2 is only needed if you
+want the device to *ask* the Mac for things (session list, permissions, usage) —
+events pushed Mac→device work on stock nocturned. Step 3 is optional polish.
+
+### 1. Build the Claude app and inject it into the firmware zip
 
 ```sh
 cd device-app && npm run build && cd ..
 node scripts/inject-firmware.js
 ```
 
-This writes `nocturne_<version>_claude.zip` next to the source zip. It adds the
-Claude app at `/etc/nocturne/ui/claude` in **both** rootfs slots and grafts the
-mode-switch script into the music UI's `index.html`. It never touches the
-original zip, and re-running it replaces a previous injection cleanly.
+With no arguments it picks the newest `nocturne*.zip` from `firmware/`,
+`~/Desktop`, or `~/Downloads`; point at one explicitly with `--zip <path>` and
+choose the output with `--out <path>`. It writes
+`nocturne_<version>_claude.zip` next to the source zip.
 
-**2. For device→Mac requests, patch nocturned.**
+What it does to the image: adds the built app at `/etc/nocturne/ui/claude` in
+**both** rootfs slots (so an OTA slot swap doesn't lose it) and grafts
+`switch.js` into the music UI's `index.html`, which is what makes holding
+preset 1 + preset 4 toggle between `/` and `/claude/`. It never modifies the
+source zip, and re-running it replaces a previous injection cleanly rather than
+stacking.
 
-nocturned only forwards an allow-listed set of methods to the phone, so `claude.*`
-requests need one extra match arm — see
+### 2. Patch nocturned so the device can call the Mac
+
+nocturned routes only an allow-listed set of methods to the connector and
+answers `Unknown method` to everything else, so `claude.*` needs one extra match
+arm. The edit is a single new arm ahead of the `_ =>` default in
+`src/app/websocket_handler.rs`, described in full in
 [`patches/nocturned-claude-forward.patch`](patches/nocturned-claude-forward.patch).
-Build nocturne with that applied, or pass an already-built binary to the
-injection script:
+
+Two ways to get a patched binary onto the device:
+
+**Full firmware build (reliable path).** Fork
+[`usenocturne/nocturned`](https://github.com/usenocturne/nocturned), apply the
+arm, then build [`usenocturne/nocturne`](https://github.com/usenocturne/nocturne)
+with `external/package/nocturned/nocturned.mk` pointed at your fork
+(`NOCTURNED_SITE` + `NOCTURNED_VERSION`; run `just cleandeps` after changing it,
+or Buildroot keeps the old checkout). That produces a complete zip — then run
+step 1 against *that* zip. The target is armv7 hard-float glibc from Buildroot's
+own toolchain; see [`carthing-knowledge/firmware.md`](carthing-knowledge/firmware.md)
+for the build's shape.
+
+**Inject a binary you already have.** If you can produce a compatible
+`armv7-unknown-linux-gnueabihf` build another way:
 
 ```sh
 node scripts/inject-firmware.js --nocturned /path/to/nocturned
 ```
 
-Events flowing the other way (Mac → device) need no patch at all, so an
-unpatched device will still show sessions pushed to it — it just can't make
-requests.
+That drops the binary into both slots in the same pass as the app.
 
-**3. Add the relay to the Nocturne macOS app.**
+### 3. Optional: a "Claude Mode" entry in Nocturne's settings menu
 
-The Mac's Bluetooth link is owned by Nocturne.app, so the `claude.*` relay lives
-there. [`patches/swift/ClaudeRelayService.swift`](patches/swift/ClaudeRelayService.swift)
-is the complete service, and [`patches/swift-connector.md`](patches/swift-connector.md)
-has the three call sites to wire it into `RPCManager` and `NocturneApp`, plus the
-settings toggle. Build in Xcode with automatic signing — do **not** disable code
-signing, or you'll lose the app's Bluetooth and Keychain grants.
+The button chord already switches modes with no source change. If you build
+nocturne-ui from source anyway and want a visible menu item too, apply
+[`patches/nocturne-ui-claude-mode.patch`](patches/nocturne-ui-claude-mode.patch)
+(two edits in `src/components/settings/Settings.jsx`).
 
-**4. Flash.**
+### 4. Add the relay to the Nocturne macOS app
 
-Flash the produced zip with [Terbium](https://terbium.app) over WebUSB (works in
-Chrome on macOS). Then pair the Car Thing in System Settings → Bluetooth, enable
-the Claude relay in Nocturne's settings, and watch the control page's Bluetooth
-section confirm the link.
+The Mac's Bluetooth link to the device is owned by Nocturne.app, so the
+`claude.*` relay lives there — it's a WebSocket *client* of the daemon on
+`ws://127.0.0.1:8790/ws`, carrying request dispatch, event push, and status
+heartbeats over one socket.
+
+Clone [`usenocturne/nocturne-connector`](https://github.com/usenocturne/nocturne-connector)
+and work in `macos/Nocturne/`. [`patches/swift/ClaudeRelayService.swift`](patches/swift/ClaudeRelayService.swift)
+is the complete new service to drop in at `Services/`, and
+[`patches/swift-connector.md`](patches/swift-connector.md) gives the exact call
+sites: one branch in `RPCManager.dispatch`, the event hookup, construction in
+`NocturneApp.init()`, and a persisted settings toggle.
+
+Build in Xcode with **automatic signing** — do *not* disable code signing, or the
+app loses its Bluetooth and Keychain grants and the link silently stops working.
+
+### 5. Flash, pair, verify
+
+1. Flash `nocturne_<version>_claude.zip` with [Terbium](https://terbium.app)
+   over WebUSB (Chrome on macOS works).
+2. Pair the Car Thing in **System Settings → Bluetooth**.
+3. Launch your built Nocturne.app and enable the Claude relay in its settings.
+4. Open the control page at <http://127.0.0.1:8790> — *Nocturne connector* should
+   read **relaying**, with the Bluetooth rows filled in.
+5. On the device, hold preset 1 + preset 4 for a second. The session list should
+   populate. If it instead errors with `Unknown method`, the running firmware
+   doesn't have step 2's patch.
+6. Trigger a tool permission in any Claude Code session — it should take over the
+   device screen; preset 1 allows, preset 4 denies, back leaves it to the
+   terminal.
 
 ---
 
@@ -184,5 +246,7 @@ the Bluetooth link, so those two are the remaining hardware-only unknowns.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Nocturne and the Car Thing platform work belong to
-their respective authors; this repo only adds to them.
+GPL-3.0 — see [LICENSE](LICENSE), matching
+[Nocturne](https://github.com/usenocturne/nocturne) upstream, which this forks.
+Nocturne and the Car Thing platform work belong to their respective authors;
+this repo only adds to them.
