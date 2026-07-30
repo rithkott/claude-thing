@@ -96,7 +96,8 @@ function freeBytes(debugfs, image) {
 }
 
 function injectSlot(debugfs, image, files, nocturnedBinary) {
-  const total = files.reduce((n, f) => n + fs.statSync(path.join(DEVICE_APP_DIST, f)).size, 0);
+  let total = files.reduce((n, f) => n + fs.statSync(path.join(DEVICE_APP_DIST, f)).size, 0);
+  if (nocturnedBinary) total += fs.statSync(nocturnedBinary).size;
   const free = freeBytes(debugfs, image);
   if (free !== null && free < total * 1.3) {
     throw new Error(`not enough free space in ${path.basename(image)}: ` +
@@ -124,7 +125,17 @@ function injectSlot(debugfs, image, files, nocturnedBinary) {
   }
 
   if (nocturnedBinary) {
-    script.push('rm /usr/bin/nocturned', `write ${nocturnedBinary} /usr/bin/nocturned`);
+    // debugfs copies the source file's mode, so a binary that arrived without
+    // +x would land unexecutable and the daemon would never come up. Set the
+    // mode and ownership explicitly rather than inheriting whatever the build
+    // host left behind.
+    script.push(
+      'rm /usr/bin/nocturned',
+      `write ${nocturnedBinary} /usr/bin/nocturned`,
+      'sif /usr/bin/nocturned mode 0100755',
+      'sif /usr/bin/nocturned uid 0',
+      'sif /usr/bin/nocturned gid 0'
+    );
   }
 
   debugfsScript(debugfs, image, script);

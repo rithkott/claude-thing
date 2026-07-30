@@ -96,21 +96,12 @@ Two prebuilt artifacts are on the [releases page](https://github.com/rithkott/cl
 
 | Asset | What it is |
 |---|---|
-| `nocturne_v4.0.7_claude.zip` | Nocturne 4.0.7 with the Claude app already injected, ready for Terbium |
-| `Nocturne-claude-1.0.dmg` | Nocturne.app 2.0.5 with the `claude.*` relay built in |
+| `nocturne_v4.0.7_claude.zip` | Nocturne 4.0.7 with the Claude app injected **and** a nocturned that forwards `claude.*`, ready for Terbium |
+| `Nocturne-claude-1.1.dmg` | Nocturne.app 2.0.5 with the `claude.*` relay built in |
+| `nocturned` | The patched daemon on its own, for injecting into a different firmware zip |
 
 You still need a Car Thing that Terbium can talk to, Chrome for its WebUSB
 flashing, and the Mac daemon from the section above.
-
-> **One caveat before you flash.** The released zip carries Nocturne's **stock**
-> nocturned, and stock nocturned only forwards an exact allow-list of methods to
-> the Mac — `claude.*` isn't on it, so every request the device makes comes back
-> `Unknown method` and the session list stays empty. Fixing that needs a
-> nocturned rebuilt from a Buildroot cross-toolchain, which can't be produced on
-> macOS; see [step 3](#3-patch-nocturned-so-the-device-can-call-the-mac). Until
-> that lands upstream, the released zip is the right image to flash but Claude
-> mode is not yet functional on real hardware. The
-> [emulator](#run-the-emulator) has no such limitation.
 
 ### 1. Install the Nocturne app with the relay
 
@@ -169,34 +160,57 @@ preset 1 + preset 4 toggle between `/` and `/claude/`. It never modifies the
 source zip, and re-running it replaces a previous injection cleanly rather than
 stacking.
 
-### 3. Patch nocturned so the device can call the Mac
+### 3. Build the patched nocturned
 
-This is the step no prebuilt artifact can cover, and without it Claude mode has
-nothing to display. nocturned matches an explicit list of method names and
-answers `Unknown method` to everything else — it is not a `spotify.*` prefix
-test, so there's no existing arm `claude.*` can ride in on. The fix is one new
-match arm ahead of the `_ =>` default in `src/app/websocket_handler.rs`, written
-out in [`patches/nocturned-claude-forward.patch`](patches/nocturned-claude-forward.patch).
+Only needed if you're building your own image — the released zip already has
+this in it.
 
-**Full firmware build.** Fork [`usenocturne/nocturned`](https://github.com/usenocturne/nocturned),
+nocturned matches an explicit list of method names and answers `Unknown method`
+to everything else. It is not a `spotify.*` prefix test, so there's no existing
+arm `claude.*` can ride in on, and the device has no other route to the Mac:
+its only network gadget is RNDIS, which macOS can't talk to. So the daemon has
+to be rebuilt with one new match arm ahead of the `_ =>` default in
+`src/app/websocket_handler.rs`.
+
+```sh
+./scripts/build-nocturned.sh                          # clones nocturned
+./scripts/build-nocturned.sh --src /path/to/checkout   # or use your own
+```
+
+That cross-compiles it in Docker and drops the binary at `dist/nocturned` —
+about 90 seconds and a couple of GB, versus hours and ~20 GB for a full
+Buildroot firmware run. Inject it in the same pass as the app:
+
+```sh
+node scripts/inject-firmware.js --nocturned dist/nocturned
+```
+
+Why a plain Debian container is safe to build the device's daemon in, given the
+rest of the userland comes from Buildroot:
+
+- The device runs **glibc 2.42**; Debian bookworm has 2.36. glibc symbols are
+  backward compatible, so building against the older one is the safe direction —
+  the binary requires at most `GLIBC_2.34`. Going the other way doesn't work:
+  the stock device binary won't even start in the build container.
+- Bookworm is new enough that `pthread`/`dl`/`rt` are folded into libc (that
+  happened in 2.34). Build on bullseye instead and you get `NEEDED` entries for
+  libraries a 2.42 rootfs no longer ships as real objects.
+- The result links the same six libraries as the stock binary — `libopus.so.0`,
+  `libdbus-1.so.3`, `libgcc_s.so.1`, `libm.so.6`, `libc.so.6`,
+  `ld-linux-armhf.so.3` — all present on the device.
+
+The script checks all of that after every build, and runs the binary under
+`qemu-arm` to confirm armv7 code actually executes rather than merely linking.
+
+**Full Buildroot instead.** If you'd rather have an image built entirely with
+one toolchain, fork [`usenocturne/nocturned`](https://github.com/usenocturne/nocturned),
 apply the arm, then build [`usenocturne/nocturne`](https://github.com/usenocturne/nocturne)
 with `external/package/nocturned/nocturned.mk` pointed at your fork
 (`NOCTURNED_SITE` + `NOCTURNED_VERSION`; run `just cleandeps` after changing it,
-or Buildroot keeps the old checkout). That produces a complete zip — then run
-step 2's injector against *that* zip. The target is armv7 hard-float glibc from
-Buildroot's own toolchain, and nocturned pulls in `bluer`, `dbus` and `opus`, so
-it wants that toolchain's sysroot rather than a bare `rustup target add`; see
+or Buildroot keeps the old checkout). That emits a complete zip — then run step
+2's injector against *that* zip for the app. See
 [`carthing-knowledge/firmware.md`](carthing-knowledge/firmware.md) for the
 build's shape.
-
-**Inject a binary you already have.** If you can produce a compatible
-`armv7-unknown-linux-gnueabihf` build another way:
-
-```sh
-node scripts/inject-firmware.js --nocturned /path/to/nocturned
-```
-
-That drops the binary into both slots in the same pass as the app.
 
 ### 4. Optional: a "Claude Mode" entry in Nocturne's settings menu
 
@@ -228,7 +242,7 @@ nocturne-ui from source anyway and want a visible menu item too, apply
 | `emulator/` | The Car Thing emulator: firmware extraction, static server, mock nocturned, faceplate, `claude.*` bridge. |
 | `mac/` | `install.sh`, `uninstall.sh`, LaunchAgent template. |
 | `patches/` | Hardware-side changes: the nocturned arm, the Swift relay, an optional nocturne-ui menu entry. |
-| `scripts/` | `inject-firmware.js`, `build-connector-dmg.sh`, `test-all.sh`. |
+| `scripts/` | `inject-firmware.js`, `build-nocturned.sh` (+ its Dockerfile), `build-connector-dmg.sh`, `test-all.sh`. |
 | `protocol/claude-protocol.md` | The `claude.*` contract — the single source of truth. |
 | `carthing-knowledge/` | Research notes on the device platform. |
 | `design-handoff/` | The original screen designs. |
@@ -266,12 +280,16 @@ prompt takes over.
 Working and verified end to end in the emulator against real Claude Code
 sessions, including a full permission round trip.
 
-On real hardware, two pieces are still unproven. The Swift relay **compiles and
-ships** in the release DMG but has never carried traffic over an actual
-Bluetooth link — the emulator stands in for it. The nocturned patch has never
-been built at all, because its cross-toolchain doesn't exist on macOS, and
-without it the device can't reach the Mac. Getting that arm into an upstream
-Nocturne release is what would make a flashed device work as designed.
+Every piece now builds and ships. The nocturned arm compiles, the binary passes
+its ABI pre-flight against the device's glibc and runs under `qemu-arm`, and it
+lands in both rootfs slots at `0755 root:root`. The Swift relay compiles into
+the release DMG.
+
+**Still unproven: the Bluetooth link itself.** Nothing in this repo has yet
+moved a `claude.*` request across real hardware — the emulator stands in for
+that hop, and a binary that loads under emulation is not the same as a daemon
+talking to bluetoothd on the device. That's the next thing to test, and the
+first flash is where it gets answered.
 
 ## License
 
