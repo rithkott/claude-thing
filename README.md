@@ -2,16 +2,12 @@
 
 > **A fork of [Nocturne](https://github.com/usenocturne/nocturne) 4.0**, the
 > custom Car Thing firmware by [usenocturne](https://github.com/usenocturne).
-> Nothing Nocturne does is removed — this adds a second mode alongside it and
-> ships the changes as patches against the upstream repos.
+> Nothing Nocturne does is removed — this adds a second mode alongside it.
 
 Turn a Spotify Car Thing into a desk monitor for Claude Code: every session at a
 glance, a queue of everything waiting on you, live usage bars, and permission
-approve/deny from the dial.
-
-It ships as an **extension of [Nocturne](https://github.com/usenocturne/nocturne)**
-— music mode and Claude mode live side by side in one firmware image and swap at
-runtime, so the device stays a music player when you want one.
+approve/deny from the dial. Music mode and Claude mode live in one firmware
+image and swap at runtime, so the device stays a music player when you want one.
 
 ```
 Car Thing kiosk ⇄ nocturned :5000 ⇄ [emulator bridge │ Bluetooth → Nocturne.app]
@@ -20,9 +16,9 @@ Car Thing kiosk ⇄ nocturned :5000 ⇄ [emulator bridge │ Bluetooth → Noctu
                                                         transcripts, /usage
 ```
 
-**You do not need the hardware to run this.** The repo includes a full Car Thing
-emulator that boots your real firmware image, renders at the device's true
-800×480, and drives it with the same events the physical buttons produce.
+**You don't need the hardware.** The repo includes a Car Thing emulator that
+boots your real firmware image at the device's true 800×480 and drives it with
+the same events the physical buttons produce.
 
 ---
 
@@ -32,203 +28,92 @@ emulator that boots your real firmware image, renders at the device's true
 |---|---|
 | **Preset 1** | **Sessions** — a two-row grid that scrolls sideways, unbounded. Each tile shows state, current activity, token counts, and an animated 8-bit Claude mascot acting out what the session is doing. Pressing a tile also raises that session's terminal window on the Mac. |
 | **Preset 2** | **Queue** — everything waiting on a human: tool permissions and Claude's multiple-choice questions, oldest first, with wait timers. |
-| **Preset 3** | **Usage** — the real `/usage` figures: session and weekly limits with reset times, plus what's driving them. Refreshed every minute. |
+| **Preset 3** | **Usage** — the real `/usage` figures: session and weekly limits with reset times, plus what's driving them. |
 | **Preset 4** | Denies the permission currently on screen. |
 | **Dial** | Turn to move, press to open or confirm. |
 | **Back** | Up a level; on a prompt, leaves it for the terminal. |
 | **M** | Ambient clock. |
 | **Touch** | Everything on screen is tappable. |
 
-Mode switch: hold **preset 1 + preset 4** together for one second. The choice is
-sticky across reboots.
+Mode switch: hold **preset 1 + preset 4** for one second. Sticky across reboots.
 
 ---
 
-## Install on the Mac
+## Install
 
-Requires macOS, **Node 18+**, and Claude Code on your `PATH`.
+Grab both files from the [latest release](https://github.com/rithkott/claude-thing/releases/latest).
+
+**1. The Mac daemon** — needs Node 18+ and Claude Code on your `PATH`.
 
 ```sh
 git clone https://github.com/rithkott/claude-thing.git
-cd claude-thing
-./mac/install.sh
+cd claude-thing && ./mac/install.sh
 ```
 
-That installs dependencies, builds the control page and the device app, merges
-the Claude Code hooks into `~/.claude/settings.json` (writing a timestamped
-backup first), and loads a LaunchAgent so the daemon runs at login and restarts
-if it dies. Pass `--no-agent` to skip the LaunchAgent and run the daemon by hand
-with `npm --prefix daemon start`.
+Installs dependencies, builds the control page and device app, merges the Claude
+Code hooks into `~/.claude/settings.json` (backup written first), and loads a
+LaunchAgent. Control page: <http://127.0.0.1:8790>. `./mac/uninstall.sh` reverses
+all of it. `--no-agent` skips the LaunchAgent.
 
-Then open the control page at **http://127.0.0.1:8790** — it shows daemon
-status, whether the hooks are live, and the Bluetooth link once you have
-hardware paired.
-
-`./mac/uninstall.sh` reverses all of it, hooks included.
-
-Optional: `brew install e2fsprogs` — needed to read firmware images, so required
-for the emulator and for firmware injection but not for the daemon itself.
-
-### Run the emulator
-
-```sh
-node emulator/scripts/deploy-dev.js
-```
-
-or just say **"deploy to dev"** to Claude Code in this repo (there's a skill for
-it). It finds your newest firmware zip, extracts the webapp out of the rootfs,
-grafts the Claude app in, starts the daemon, and opens a Chrome window with a
-clickable Car Thing faceplate rendered 1:1 at 800×480.
-
-`CLAUDE_THING_MOCK=1` runs it with fake sessions plus a scripted permission every
-60s and a question every 90s, which is the easiest way to see the queue work.
-
----
-
-## Build and install on the hardware
-
-The device ends up running Nocturne with the Claude app added alongside it, and
-the Mac ends up running Nocturne.app with a small relay added to it. Nothing here
-replaces Nocturne — every step below starts from an upstream artifact and adds to
-it.
-
-Two prebuilt artifacts are on the [releases page](https://github.com/rithkott/claude-thing/releases/latest):
-
-| Asset | What it is |
-|---|---|
-| `nocturne_v4.0.7_claude.zip` | Nocturne 4.0.7 with the Claude app injected **and** a nocturned that forwards `claude.*`, ready for Terbium |
-| `Nocturne-claude-1.1.dmg` | Nocturne.app 2.0.5 with the `claude.*` relay built in |
-| `nocturned` | The patched daemon on its own, for injecting into a different firmware zip |
-
-You still need a Car Thing that Terbium can talk to, Chrome for its WebUSB
-flashing, and the Mac daemon from the section above.
-
-### 1. Install the Nocturne app with the relay
-
-Mount `Nocturne-claude-1.0.dmg`, drag Nocturne.app to Applications, then clear
-the quarantine flag:
+**2. `Nocturne-claude-*.dmg`** — Nocturne.app with the `claude.*` relay, which is
+what carries traffic between the device and the daemon. Drag it to Applications,
+then:
 
 ```sh
 xattr -cr /Applications/Nocturne.app
 ```
 
-The DMG is **ad-hoc signed, not notarized** — no Apple Developer certificate was
-involved — so without that command macOS refuses to open it. The same command
-also strips the Finder metadata the DMG packaging adds, which is what leaves the
-signature valid afterwards (`codesign --verify --deep --strict` passes).
+It's ad-hoc signed rather than notarized, so macOS blocks it without that. Launch
+it and turn on **Settings → Claude Mode → Claude Code relay**.
 
-Launch it, sign in as you would with stock Nocturne, then turn on
-**Settings → Claude Mode → Claude Code relay**. It connects to the daemon at
-`ws://127.0.0.1:8790/ws`; the subtitle flips to *Relaying* when it's up.
+**3. `nocturne_*_claude.zip`** — flash with [Terbium](https://terbium.app) in
+Chrome. Hold **preset 4** while plugging in USB-C to enter burn mode. Then pair
+the Car Thing in **System Settings → Bluetooth**.
 
-To build the DMG yourself instead:
+The control page should show *Nocturne connector* relaying, and holding
+preset 1 + preset 4 on the device should bring up your sessions.
+
+### Run the emulator instead
 
 ```sh
-./scripts/build-connector-dmg.sh                                   # clones the connector
-./scripts/build-connector-dmg.sh --connector /path/to/checkout     # or use your own
+node emulator/scripts/deploy-dev.js
 ```
 
-That copies a [`nocturne-connector`](https://github.com/usenocturne/nocturne-connector)
-checkout into `build/`, adds `ClaudeRelayService.swift`, applies the four call-site
-edits, and runs the connector's own DMG script. Your checkout is never modified,
-and it refuses to build if any anchor stops matching. Pass `-- --skip-notarize`
-(or nothing after `--`) if you have a Developer ID certificate and want a real
-signed build; [`patches/swift-connector.md`](patches/swift-connector.md) has the
-same edits written out for doing it by hand.
+Finds your newest firmware zip, grafts the Claude app in, starts the daemon, and
+opens a clickable Car Thing faceplate in Chrome. `CLAUDE_THING_MOCK=1` adds fake
+sessions plus a scripted permission every 60s, which is the quickest way to see
+the queue work.
 
-### 2. Flash the firmware
+---
 
-Flash `nocturne_v4.0.7_claude.zip` with [Terbium](https://terbium.app) over
-WebUSB, then pair the Car Thing in **System Settings → Bluetooth**.
+## Building it yourself
 
-To build the image yourself, against any Nocturne zip that contains
-`system_a.ext2` (that's the Terbium-style package, not a `.swu`) — this needs
-`brew install e2fsprogs` for `debugfs`:
+Needs `brew install e2fsprogs` for firmware work, Docker for the daemon, Xcode
+for the Mac app.
 
 ```sh
-cd device-app && npm run build && cd ..
-node scripts/inject-firmware.js
-```
-
-With no arguments it picks the newest `nocturne*.zip` from `firmware/`,
-`~/Desktop`, or `~/Downloads`; `--zip <path>` and `--out <path>` override that.
-
-What it does to the image: adds the built app at `/etc/nocturne/ui/claude` in
-**both** rootfs slots (so an OTA slot swap doesn't lose it) and grafts
-`switch.js` into the music UI's `index.html`, which is what makes holding
-preset 1 + preset 4 toggle between `/` and `/claude/`. It never modifies the
-source zip, and re-running it replaces a previous injection cleanly rather than
-stacking.
-
-### 3. Build the patched nocturned
-
-Only needed if you're building your own image — the released zip already has
-this in it.
-
-nocturned matches an explicit list of method names and answers `Unknown method`
-to everything else. It is not a `spotify.*` prefix test, so there's no existing
-arm `claude.*` can ride in on, and the device has no other route to the Mac:
-its only network gadget is RNDIS, which macOS can't talk to. So the daemon has
-to be rebuilt with one new match arm ahead of the `_ =>` default in
-`src/app/websocket_handler.rs`.
-
-```sh
-./scripts/build-nocturned.sh                          # clones nocturned
-./scripts/build-nocturned.sh --src /path/to/checkout   # or use your own
-```
-
-That cross-compiles it in Docker and drops the binary at `dist/nocturned` —
-about 90 seconds and a couple of GB, versus hours and ~20 GB for a full
-Buildroot firmware run. Inject it in the same pass as the app:
-
-```sh
+./scripts/build-nocturned.sh        # the device daemon, cross-compiled (~90s)
 node scripts/inject-firmware.js --nocturned dist/nocturned
+./scripts/build-connector-dmg.sh    # Nocturne.app + relay → dist/*.dmg
 ```
 
-Why a plain Debian container is safe to build the device's daemon in, given the
-rest of the userland comes from Buildroot:
+`inject-firmware.js` takes any Nocturne zip containing `system_a.ext2` (newest
+in `firmware/`, `~/Desktop` or `~/Downloads` by default; `--zip` and `--out`
+override). It adds the app at `/etc/nocturne/ui/claude` in **both** rootfs slots,
+grafts the mode-switch script into the music UI, and swaps in the daemon. The
+source zip is never modified.
 
-- The device runs **glibc 2.42**; Debian bookworm has 2.36. glibc symbols are
-  backward compatible, so building against the older one is the safe direction —
-  the binary requires at most `GLIBC_2.34`. Going the other way doesn't work:
-  the stock device binary won't even start in the build container.
-- Bookworm is new enough that `pthread`/`dl`/`rt` are folded into libc (that
-  happened in 2.34). Build on bullseye instead and you get `NEEDED` entries for
-  libraries a 2.42 rootfs no longer ships as real objects.
-- The result links the same six libraries as the stock binary — `libopus.so.0`,
-  `libdbus-1.so.3`, `libgcc_s.so.1`, `libm.so.6`, `libc.so.6`,
-  `ld-linux-armhf.so.3` — all present on the device.
+Why a rebuilt daemon is needed at all: `nocturned` forwards an exact allow-list
+of method names from the device to the Mac, and `claude.*` isn't on it. It's
+compiled Rust, so unlike the web app it can't be patched by file injection. The
+one-line change is [`patches/nocturned-claude-forward.patch`](patches/nocturned-claude-forward.patch);
+`build-nocturned.sh` applies it, cross-compiles to armv7, and verifies the result
+against the device's ABI before you flash anything. A full Buildroot firmware
+build is the alternative — hours instead of seconds, but one toolchain
+throughout.
 
-The script checks all of that after every build, and runs the binary under
-`qemu-arm` to confirm armv7 code actually executes rather than merely linking.
-
-**Full Buildroot instead.** If you'd rather have an image built entirely with
-one toolchain, fork [`usenocturne/nocturned`](https://github.com/usenocturne/nocturned),
-apply the arm, then build [`usenocturne/nocturne`](https://github.com/usenocturne/nocturne)
-with `external/package/nocturned/nocturned.mk` pointed at your fork
-(`NOCTURNED_SITE` + `NOCTURNED_VERSION`; run `just cleandeps` after changing it,
-or Buildroot keeps the old checkout). That emits a complete zip — then run step
-2's injector against *that* zip for the app. See
-[`carthing-knowledge/firmware.md`](carthing-knowledge/firmware.md) for the
-build's shape.
-
-### 4. Optional: a "Claude Mode" entry in Nocturne's settings menu
-
-The button chord already switches modes with no source change. If you build
-nocturne-ui from source anyway and want a visible menu item too, apply
-[`patches/nocturne-ui-claude-mode.patch`](patches/nocturne-ui-claude-mode.patch)
-(two edits in `src/components/settings/Settings.jsx`).
-
-### 5. Verify
-
-1. Open the control page at <http://127.0.0.1:8790> — *Nocturne connector*
-   should read **relaying**, with the Bluetooth rows filled in.
-2. On the device, hold preset 1 + preset 4 for a second. The session list should
-   populate. If it stays empty and the logs show `Unknown method`, the running
-   firmware doesn't have step 3's patch.
-3. Trigger a tool permission in any Claude Code session — it should take over the
-   device screen; preset 1 allows, preset 4 denies, back leaves it to the
-   terminal.
+Also in [`patches/`](patches/): the Swift relay, and an optional Claude Mode
+entry for nocturne-ui's settings menu.
 
 ---
 
@@ -236,13 +121,13 @@ nocturne-ui from source anyway and want a visible menu item too, apply
 
 | Path | What |
 |---|---|
-| `daemon/` | Mac host daemon on `127.0.0.1:8790`. Session discovery, the permission bridge, the queue, usage, window focus, and the WebSocket hub. |
-| `device-app/` | The Claude mode kiosk app (Vite + vanilla JS, Chrome 69 target, hash routing). Sprites are generated from ASCII pixel grids by `npm run sprites`. |
-| `webpage/` | The Mac control page (React + Tailwind): status, Bluetooth verification, hook management. |
-| `emulator/` | The Car Thing emulator: firmware extraction, static server, mock nocturned, faceplate, `claude.*` bridge. |
+| `daemon/` | Mac host daemon on `127.0.0.1:8790`. Session discovery, permission bridge, queue, usage, window focus, WebSocket hub. |
+| `device-app/` | The Claude mode kiosk app (Vite + vanilla JS, Chrome 69 target). |
+| `webpage/` | The Mac control page (React + Tailwind). |
+| `emulator/` | Firmware extraction, static server, mock nocturned, faceplate, `claude.*` bridge. |
 | `mac/` | `install.sh`, `uninstall.sh`, LaunchAgent template. |
-| `patches/` | Hardware-side changes: the nocturned arm, the Swift relay, an optional nocturne-ui menu entry. |
-| `scripts/` | `inject-firmware.js`, `build-nocturned.sh` (+ its Dockerfile), `build-connector-dmg.sh`, `test-all.sh`. |
+| `patches/` | The nocturned arm, the Swift relay, an optional nocturne-ui menu entry. |
+| `scripts/` | Firmware injection, the two builders, `test-all.sh`. |
 | `protocol/claude-protocol.md` | The `claude.*` contract — the single source of truth. |
 | `carthing-knowledge/` | Research notes on the device platform. |
 | `design-handoff/` | The original screen designs. |
@@ -254,42 +139,30 @@ nocturne-ui from source anyway and want a visible menu item too, apply
 ./scripts/test-all.sh --full   # also boots a daemon and runs the WS integration test
 ```
 
-60 unit assertions cover the usage parser, the session state machine, the
-permission bridge (including the timeout path), the queue's focus/typing
-fallbacks, and every device screen's rendering. The integration test drives a
-real permission round trip over the WebSocket hub.
-
----
+60 unit assertions cover the usage parser, session state machine, permission
+bridge including its timeout path, the queue's focus/typing fallbacks, and every
+device screen. The integration test drives a real permission round trip.
 
 ## Two things worth knowing
 
 **Permissions are answered properly; questions are typed.** A `PermissionRequest`
 hook is held open by the daemon, so allow/deny from the dial is the real
-decision. Multiple-choice questions can't work that way — no Claude Code hook
-can supply a tool result — so answering one focuses that session's terminal and
-types the option number. That needs Automation → System Events; if macOS denies
-it, the device focuses the window and tells you to press the key. It never
-routes around the denial.
+decision. Multiple-choice questions can't work that way — no Claude Code hook can
+supply a tool result — so answering one focuses that session's terminal and types
+the option number. That needs Automation → System Events; if macOS denies it, the
+device focuses the window and tells you to press the key.
 
-**Nothing auto-denies.** If the daemon is down, unreachable, or nobody answers
-within 55 seconds, the hook is released with "ask" and the normal terminal
-prompt takes over.
+**Nothing auto-denies.** If the daemon is down or nobody answers within 55
+seconds, the hook is released with "ask" and the terminal prompt takes over.
 
 ## Status
 
-Working and verified end to end in the emulator against real Claude Code
-sessions, including a full permission round trip.
+Verified end to end in the emulator against real Claude Code sessions, including
+a full permission round trip. Every piece builds and ships.
 
-Every piece now builds and ships. The nocturned arm compiles, the binary passes
-its ABI pre-flight against the device's glibc and runs under `qemu-arm`, and it
-lands in both rootfs slots at `0755 root:root`. The Swift relay compiles into
-the release DMG.
-
-**Still unproven: the Bluetooth link itself.** Nothing in this repo has yet
-moved a `claude.*` request across real hardware — the emulator stands in for
-that hop, and a binary that loads under emulation is not the same as a daemon
-talking to bluetoothd on the device. That's the next thing to test, and the
-first flash is where it gets answered.
+**Unproven: the Bluetooth hop.** No `claude.*` request has crossed real hardware
+yet — the emulator stands in for that link. The first flash is where that gets
+answered.
 
 ## License
 
