@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Installed to ~/Library/LaunchAgents/com.claudething.daemon.plist by
+     mac/install.sh, which substitutes __NODE__ and __ROOT__. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.claudething.daemon</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>__ROOT__/daemon/src/index.js</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__ROOT__/daemon</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <!-- Login shells set up nvm/homebrew paths; a LaunchAgent gets neither, so
+       the `claude` binary has to be findable explicitly. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>__PATH__</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>__ROOT__/daemon/logs/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>__ROOT__/daemon/logs/launchd.err.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

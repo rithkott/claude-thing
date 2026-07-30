@@ -1,0 +1,20 @@
+{
+  "name": "claude-thing-daemon",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mac host daemon: Claude Code session sources, permission bridge, WS hub for Car Thing relays",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "install-hooks": "node scripts/install-hooks.js",
+    "uninstall-hooks": "node scripts/uninstall-hooks.js",
+    "smoke": "node scripts/smoke-hub.js",
+    "test": "CLAUDE_THING_HOLD_MS=200 node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,47 @@
+Optional polish: add a "Claude Mode" entry to nocturne-ui's General settings.
+
+The primary mode switch needs no source patch — `scripts/inject-firmware.js`
+grafts `switch.js` into the built music UI, and holding preset 1 + preset 4 for
+one second toggles between `/` and `/claude/`. This patch is for users who build
+nocturne-ui from source anyway and want a visible menu entry too.
+
+Apply in the nocturne workspace:
+
+    cd ~/Desktop/Projects/nocturne/nocturne-ui
+    git apply ../../claude-thing/patches/nocturne-ui-claude-mode.patch
+
+Two edits in `src/components/settings/Settings.jsx`, both mirroring the existing
+`factory-reset` action item:
+
+1. In the General section's `items` array (immediately before the
+   `id: "factory-reset"` entry, ~line 100):
+
+```jsx
+      {
+        id: "claude-mode",
+        title: "Claude Mode",
+        type: "action",
+        description:
+          "Switch to the Claude Code session monitor. Hold preset 1 + preset 4 to come back.",
+        action: "claudeMode",
+      },
+```
+
+2. In `handleAction` (~line 670), a new case beside `factoryReset`:
+
+```jsx
+      case "claudeMode":
+        try {
+          window.localStorage.setItem("claude-mode", "1");
+        } catch (e) {}
+        window.location.assign("/claude/");
+        break;
+```
+
+No other changes. `/claude/` is served from the same origin by nocturned's
+static server, so this is a plain same-origin navigation; the Claude app's
+"Exit to Music" action (and the preset chord) clears the `claude-mode` flag so
+the device boots back into music mode.
+
+NOTE: documented as an edit rather than a byte-exact diff because line numbers
+in Settings.jsx shift between nocturne releases.

@@ -1,0 +1,227 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #17181c;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+/* ---- device body ---- */
+
+.device {
+  position: relative;
+  background: linear-gradient(160deg, #2c2d31 0%, #232427 55%, #1c1d20 100%);
+  border-radius: 34px;
+  padding: 26px 30px 30px 30px;
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.5);
+}
+
+/* ---- top edge buttons ---- */
+
+.top-edge {
+  position: absolute;
+  top: -14px;
+  left: 70px;
+  right: 220px;
+  display: flex;
+  gap: 26px;
+  align-items: flex-end;
+}
+
+.top-edge button {
+  border: none;
+  cursor: pointer;
+  background: linear-gradient(180deg, #3a3b40, #26272b);
+  border-radius: 7px 7px 3px 3px;
+  box-shadow:
+    0 -2px 4px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transition: transform 60ms ease;
+}
+
+.top-edge .preset {
+  flex: 1;
+  height: 18px;
+  max-width: 130px;
+}
+
+.top-edge .settings {
+  width: 44px;
+  height: 16px;
+  margin-left: 18px;
+  border-radius: 8px 8px 3px 3px;
+}
+
+.top-edge button:active,
+.top-edge button.pressed {
+  transform: translateY(4px);
+  background: linear-gradient(180deg, #2b2c30, #202126);
+}
+
+/* ---- face: screen + right column ---- */
+
+.face {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+}
+
+.screen-bezel {
+  position: relative;
+  background: #000;
+  border-radius: 18px;
+  padding: 10px;
+  box-shadow:
+    inset 0 0 0 2px #0a0a0b,
+    inset 0 2px 10px rgba(0, 0, 0, 0.9);
+}
+
+#screen {
+  display: block;
+  border: none;
+  border-radius: 10px;
+  background: #000;
+}
+
+.power-overlay {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 800px;
+  height: 480px;
+  border-radius: 10px;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+}
+
+.power-overlay.hidden { display: none; }
+
+.power-msg {
+  color: #3d3f45;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+}
+
+/* ---- dial + back ---- */
+
+.right-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+}
+
+.dial {
+  width: 168px;
+  height: 168px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #3f4046, #232428 70%);
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.6),
+    inset 0 2px 3px rgba(255, 255, 255, 0.1),
+    inset 0 -4px 10px rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+}
+
+.dial:active { cursor: grabbing; }
+
+.dial-knob {
+  width: 138px;
+  height: 138px;
+  border-radius: 50%;
+  position: relative;
+  background:
+    radial-gradient(circle at 40% 32%, #4a4b52, #2b2c31 75%);
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.14),
+    inset 0 -3px 8px rgba(0, 0, 0, 0.5),
+    0 3px 10px rgba(0, 0, 0, 0.5);
+  transition: box-shadow 80ms ease;
+}
+
+.dial.pressed .dial-knob {
+  box-shadow:
+    inset 0 2px 8px rgba(0, 0, 0, 0.7),
+    0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.dial-ridges {
+  position: absolute;
+  top: 0; right: 0; bottom: 0; left: 0;
+  border-radius: 50%;
+  background: repeating-conic-gradient(
+    rgba(255, 255, 255, 0.045) 0deg 3deg,
+    transparent 3deg 9deg
+  );
+  -webkit-mask: radial-gradient(circle, transparent 58%, black 62%);
+  mask: radial-gradient(circle, transparent 58%, black 62%);
+}
+
+.dial-dot {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  margin-left: -3.5px;
+  border-radius: 50%;
+  background: #63656d;
+}
+
+.back-btn {
+  width: 46px;
+  height: 46px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  background: radial-gradient(circle at 38% 32%, #3c3d43, #242529 78%);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.55),
+    inset 0 1px 1px rgba(255, 255, 255, 0.12),
+    inset 0 -2px 5px rgba(0, 0, 0, 0.5);
+  transition: transform 60ms ease;
+}
+
+.back-btn:active,
+.back-btn.pressed {
+  transform: scale(0.93);
+  background: radial-gradient(circle at 38% 32%, #2e2f34, #1e1f23 78%);
+}
+
+/* ---- status strip ---- */
+
+.status-strip {
+  display: flex;
+  gap: 22px;
+  align-items: baseline;
+  color: #6b6e78;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.status-strip .ws-state.ok { color: #4caf7d; }
+.status-strip .ws-state.bad { color: #c05555; }
+.status-strip .hint { color: #44464e; }

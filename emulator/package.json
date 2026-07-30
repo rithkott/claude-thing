@@ -1,0 +1,17 @@
+{
+  "name": "carthing-emulator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local dev emulator for the Spotify Car Thing running Nocturne firmware zips",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy": "node scripts/deploy-dev.js",
+    "check": "node src/firmware.js --check",
+    "smoke": "node scripts/smoke-ws.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

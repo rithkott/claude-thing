@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.cache/
+logs/
+*.pid
+.DS_Store
+
+# emulator working state
+emulator/.cache/
+emulator/logs/
+
+# firmware images are ~350MB — never commit them
+*.zip
+*.ext2
+*.dump

@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/* Palette follows the nocturne-connector client so the two control pages feel
+   like one product, with claude-thing's coral accent from the device screens. */
+:root {
+  --bg: #0c0c0c;
+  --bg-raised: #141414;
+  --bg-hover: #1c1c1c;
+  --fg: #f0f0f0;
+  --fg-secondary: #888888;
+  --fg-muted: #505050;
+  --border: #1e1e1e;
+  --border-hover: #363636;
+  --accent: #e8825a;
+  --accent-hover: #f0946f;
+  --destructive: #e06a50;
+  --success: #3fd0a4;
+  --warn: #ffb020;
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-raised: var(--bg-raised);
+  --color-hover: var(--bg-hover);
+  --color-fg: var(--fg);
+  --color-secondary: var(--fg-secondary);
+  --color-muted: var(--fg-muted);
+  --color-line: var(--border);
+  --color-line-hover: var(--border-hover);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warn: var(--warn);
+  --radius-lg: var(--radius);
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}

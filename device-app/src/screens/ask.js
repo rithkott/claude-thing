@@ -1,0 +1,71 @@
+import { esc } from './helpers.js';
+
+// Fullscreen prompt view. Permissions keep the hazard-striped allow/deny/skip
+// layout; questions render Claude's own options as a dial-selectable list.
+export function renderAsk(state, ask, choice) {
+  return ask.kind === 'question'
+    ? renderQuestion(state, ask, choice)
+    : renderPermissionAsk(state, ask, choice);
+}
+
+function head(ask, label, klass) {
+  var queue = state_queuePos(ask);
+  return '<div class="hazard' + (klass || '') + '"></div>' +
+    '<div class="head"><span class="lamp attention"></span>' +
+    '<span class="who">' + label + '</span>' +
+    (queue ? '<span class="queuen">' + queue + '</span>' : '') + '</div>' +
+    '<div class="session">' + esc(ask.sessionName || 'session') + '</div>';
+}
+
+// filled in by renderAsk callers via setQueueContext
+var queueContext = { index: 0, total: 1 };
+export function setQueueContext(index, total) {
+  queueContext = { index: index, total: total };
+}
+function state_queuePos() {
+  return queueContext.total > 1 ? (queueContext.index + 1) + ' of ' + queueContext.total : '';
+}
+
+function renderPermissionAsk(state, ask, choice) {
+  return '<div class="perm">' + head(ask, 'PERMISSION REQUEST') +
+    '<div class="tool">' + esc(ask.tool) + '</div>' +
+    '<div class="cmd">' + esc(ask.summary) + '</div>' +
+    '<div class="actions">' +
+    '<div class="pbtn allow' + (choice === 0 ? ' selected' : '') + '" data-action="ask-choice" data-id="0">' +
+    '<span class="a">ALLOW</span><span class="h">press dial</span></div>' +
+    '<div class="pbtn deny' + (choice === 1 ? ' selected' : '') + '" data-action="ask-choice" data-id="1">' +
+    '<span class="a">DENY</span><span class="h">preset 4</span></div>' +
+    '<div class="pbtn dismiss' + (choice === 2 ? ' selected' : '') + '" data-action="ask-skip">' +
+    '<span class="a">SKIP</span><span class="h">back · answers in terminal</span></div>' +
+    '</div></div>';
+}
+
+function renderQuestion(state, ask, choice) {
+  var options = ask.options || [];
+  // keep the cursor on screen: a window of 3 options at a time
+  var start = Math.max(0, Math.min(choice - 1, options.length - 3));
+  if (start < 0) start = 0;
+  var shown = options.slice(start, start + 3);
+
+  var opts = '';
+  for (var i = 0; i < shown.length; i++) {
+    var idx = start + i;
+    var o = shown[i];
+    opts +=
+      '<div class="qopt' + (idx === choice ? ' selected' : '') +
+      '" data-action="ask-choice" data-id="' + idx + '">' +
+      '<span class="qnum">' + (idx + 1) + '</span>' +
+      '<div class="qtext"><div class="qlabel">' + esc(o.label) + '</div>' +
+      (o.description ? '<div class="qdesc">' + esc(o.description) + '</div>' : '') +
+      '</div></div>';
+  }
+  var more = options.length > 3
+    ? '<div class="qmore">' + (choice + 1) + ' / ' + options.length + ' · turn dial for more</div>'
+    : '';
+
+  return '<div class="perm question">' + head(ask, esc(ask.header || 'QUESTION'), ' coral') +
+    '<div class="qprompt">' + esc(ask.question) + '</div>' +
+    '<div class="qopts">' + opts + '</div>' + more +
+    '<div class="qhint">press dial to answer · back to leave it for the terminal</div>' +
+    '</div>';
+}
