@@ -4,7 +4,7 @@ import { esc, topbar, stateLabel, fmtTokens } from './helpers.js';
 // The dial walks sessions in column-major order and the track slides so the
 // selected tile stays on screen — any number of sessions fits.
 var ROWS = 2;
-var COLS_VISIBLE = 3;
+var COLS_VISIBLE = 2;
 
 var scrollCol = 0;   // leftmost visible column
 
@@ -40,8 +40,8 @@ export function renderList(state) {
       '</div>';
   }
 
-  // 248px tile + 10px gap per column
-  var offset = scrollCol * 258;
+  // 379px tile + 10px gap per column (see .gridtrack)
+  var offset = scrollCol * 389;
   // The rail is always in the layout so the bottom row keeps the same gap
   // whether or not the set scrolls; only the thumb comes and goes.
   var thumb = '';

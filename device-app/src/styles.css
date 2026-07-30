@@ -518,7 +518,9 @@ body {
   display: grid;
   grid-auto-flow: column;
   grid-template-rows: repeat(2, 1fr);
-  grid-auto-columns: 248px;
+  /* 800px screen − 32px of side padding − one 10px gap, halved: two columns
+     across, so a full page of the grid is four tiles. */
+  grid-auto-columns: 379px;
   grid-gap: 10px;
   transition: transform 0.18s ease-out;
   will-change: transform;
@@ -551,7 +553,7 @@ body {
   position: relative;
   display: flex;
   flex-direction: column;
-  padding: 16px 14px 12px 14px;
+  padding: 18px 18px 14px 18px;
   border-radius: 10px;
   background: var(--panel);
   overflow: hidden;
@@ -581,17 +583,17 @@ body {
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  margin-bottom: 9px;
+  margin-bottom: 10px;
 }
 .tile .thead .lamp {
-  width: 12px;
-  height: 12px;
-  margin-right: 8px;
+  width: 14px;
+  height: 14px;
+  margin-right: 9px;
 }
 .tile .slabel {
   font-family: "Chakra Petch", sans-serif;
   font-weight: 700;
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.18em;
   color: var(--faint);
 }
@@ -606,23 +608,23 @@ body {
 }
 .tile .badge {
   margin-left: auto;
-  width: 17px;
-  height: 17px;
-  border-radius: 4px;
+  width: 21px;
+  height: 21px;
+  border-radius: 5px;
   background: var(--lamp-attn);
   color: #0e0a04;
   font-family: "Chakra Petch", sans-serif;
   font-weight: 700;
-  font-size: 12px;
-  line-height: 17px;
+  font-size: 14px;
+  line-height: 21px;
   text-align: center;
 }
 .tile .tname {
   font-family: "Chakra Petch", sans-serif;
   font-weight: 500;
-  font-size: 19px;
+  font-size: 23px;
   line-height: 1.22;
-  max-height: 46px;
+  max-height: 56px;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -633,10 +635,10 @@ body {
 }
 .tile .tsub {
   font-family: "JetBrains Mono", Menlo, monospace;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.35;
   color: var(--faint);
-  margin-top: 7px;
+  margin-top: 8px;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -644,11 +646,12 @@ body {
 }
 .tile .ttok {
   font-family: "JetBrains Mono", Menlo, monospace;
-  font-size: 11px;
+  font-size: 13px;
   color: #4a4133;
   margin-top: auto;
   padding-top: 8px;
-  padding-right: 30px;
+  /* clears the sprite parked in the bottom-right corner */
+  padding-right: 44px;
   white-space: nowrap;
   overflow: hidden;
 }
@@ -659,12 +662,13 @@ body {
    each frame crisp instead of tweening between them. */
 .tile .sprite {
   position: absolute;
-  right: 11px;
-  bottom: 10px;
-  width: 22px;
-  height: 22px;
+  right: 14px;
+  bottom: 12px;
+  width: 32px;
+  height: 32px;
   background-repeat: no-repeat;
-  background-size: 88px 22px;
+  /* 32px is exactly 2× the 16px source grid, so the pixels stay square */
+  background-size: 128px 32px;
   image-rendering: pixelated;
   image-rendering: -moz-crisp-edges;
 }
@@ -686,9 +690,9 @@ body {
 }
 @keyframes sprite4 {
   0% { background-position: 0 0; }
-  25% { background-position: -22px 0; }
-  50% { background-position: -44px 0; }
-  75% { background-position: -66px 0; }
+  25% { background-position: -32px 0; }
+  50% { background-position: -64px 0; }
+  75% { background-position: -96px 0; }
   100% { background-position: 0 0; }
 }
 /* ---- queue list ---- */
