@@ -18,23 +18,39 @@ function pick(obj, keys, fallback) {
 
 // `claude agents --json` reports a coarse lifecycle state; map it onto ours.
 // Anything unrecognized just leaves the store's activity-based derivation alone.
+// Only `state` is trusted for activity. `status` reports "busy" for any session
+// with a live process — a terminal left open overnight still says busy — so
+// deciding "working" from it would light up the whole grid.
 function applyAgentState(fields, agentState) {
   switch (String(agentState || '').toLowerCase()) {
     case 'running':
     case 'working':
       fields.ended = false;
       fields.waitingForInput = false;
+      fields.agentActive = true;
+      fields.agentActiveTs = Date.now();
       break;
+    // These are the authoritative "not working" verdicts, and the only reliable
+    // way to clear a thinking flag whose Stop hook never arrived.
     case 'blocked':
     case 'waiting':
       fields.ended = false;
       fields.waitingForInput = true;
+      fields.agentActive = false;
+      fields.thinking = false;
+      break;
+    case 'idle':
+      fields.ended = false;
+      fields.agentActive = false;
+      fields.thinking = false;
       break;
     case 'completed':
     case 'stopped':
     case 'failed':
       fields.ended = true;
       fields.waitingForInput = false;
+      fields.agentActive = false;
+      fields.thinking = false;
       break;
   }
 }
@@ -78,23 +94,26 @@ export function startPollerSource({ store }) {
         };
         if (startedAt) fields.startedTs = startedAt;
         // Seed activity from startedAt so a daemon restart doesn't light every
-        // known session up as "busy" for the busy window.
+        // known session up as "busy" for the busy window. Whether it is really
+        // working is answered by `state` below, not by this timestamp.
         if (isNew) fields.lastActivityTs = startedAt || Date.now();
-        applyAgentState(fields, pick(item, ['state', 'status'], null));
+        applyAgentState(fields, pick(item, ['state'], null));
 
         store.upsert(id, fields);
         ensureTail(store, id, transcriptPathFor(id, cwd));
         seen.add(id);
       }
 
-      // sessions the poller used to see but no longer does = ended
-      for (const id of seen) {
-        if (!current.has(id)) {
-          seen.delete(id);
-          stopTail(id);
-          const raw = store.raw(id);
-          if (raw && !raw.ended) store.upsert(id, { ended: true, waitingForInput: false });
-        }
+      // The registry is the authority on what is alive, so reconcile the whole
+      // store against it rather than only the ids this poller happened to see.
+      // Sessions discovered by a hook, or inherited across a daemon restart,
+      // were never in `seen` and so could never be retired — which is how a
+      // grid of one live session ends up showing eight.
+      for (const [id, raw] of store.entries()) {
+        if (current.has(id) || raw.ended) continue;
+        seen.delete(id);
+        stopTail(id);
+        store.upsert(id, { ended: true, waitingForInput: false });
       }
     });
   }

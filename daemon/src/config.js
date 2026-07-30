@@ -36,7 +36,17 @@ export const SNAPSHOT_DEBOUNCE_MS = 500;
 export const BUSY_WINDOW_MS = 10_000;    // activity within this = busy
 export const CELEBRATE_MS = 20_000;      // celebrate decays to idle after this
 export const POLL_INTERVAL_MS = 3_000;   // claude agents --json poll
-export const ENDED_TTL_MS = Number(process.env.CLAUDE_THING_ENDED_TTL_MS ?? 15 * 60_000);
+// The registry's "working" verdict is the only thing that stays true while the
+// model thinks and nothing is being written. Trust it for a few poll intervals
+// so one dropped poll doesn't blink a working session to idle.
+export const AGENT_ACTIVE_TTL_MS = 3 * POLL_INTERVAL_MS;
+// A turn normally ends at the Stop hook. If that never arrives — session killed
+// mid-thought, hooks not installed — this stops the tile from claiming to work
+// forever. Long enough not to cut off a genuinely slow turn.
+export const THINKING_TTL_MS = 10 * 60_000;
+// Long enough to watch a run finish, short enough that closing a few terminals
+// doesn't leave the grid full of headstones.
+export const ENDED_TTL_MS = Number(process.env.CLAUDE_THING_ENDED_TTL_MS ?? 60_000);
 
 export const MOCK_SESSIONS = process.env.CLAUDE_THING_MOCK === '1';
 

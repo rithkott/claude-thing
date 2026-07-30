@@ -119,3 +119,77 @@ test('detail carries the fields the device screen needs', () => {
 test('unknown session has no detail', () => {
   assert.equal(createStore().get('nope'), null);
 });
+
+// --- thinking / working ------------------------------------------------------
+
+test('a session thinking mid-turn stays busy with no activity for minutes', () => {
+  const store = createStore();
+  // UserPromptSubmit lands, then the model thinks: no hooks, no transcript
+  // writes, nothing to refresh lastActivityTs.
+  store.upsert('a', { name: 'proj', thinking: true, lastActivityTs: Date.now() - 5 * 60 * ONE_SEC });
+  assert.equal(stateOf(store, 'a'), 'busy');
+});
+
+test('thinking is abandoned if it never ends', () => {
+  const store = createStore();
+  // Quiet as well as thinking, or the activity window alone would keep it busy.
+  store.upsert('a', { name: 'proj', thinking: true, lastActivityTs: Date.now() - 60 * ONE_SEC });
+  store.raw('a').thinkingTs = Date.now() - 11 * 60 * ONE_SEC;   // past THINKING_TTL_MS
+  assert.equal(stateOf(store, 'a'), 'idle');
+});
+
+test('a fresh registry "working" verdict beats a stale activity timestamp', () => {
+  const store = createStore();
+  store.upsert('a', {
+    name: 'proj', agentActive: true, agentActiveTs: Date.now(),
+    lastActivityTs: Date.now() - 60 * ONE_SEC,
+  });
+  assert.equal(stateOf(store, 'a'), 'busy');
+});
+
+test('a stale registry verdict does not keep a quiet session busy', () => {
+  const store = createStore();
+  store.upsert('a', {
+    name: 'proj', agentActive: true, agentActiveTs: Date.now() - 60 * ONE_SEC,
+    lastActivityTs: Date.now() - 60 * ONE_SEC,
+  });
+  assert.equal(stateOf(store, 'a'), 'idle');
+});
+
+test('ending a session clears thinking, so it cannot outlive its own exit', () => {
+  const store = createStore();
+  store.upsert('a', { name: 'proj', thinking: true });
+  store.upsert('a', { ended: true });
+  assert.equal(stateOf(store, 'a'), 'idle');
+});
+
+// --- pruning -----------------------------------------------------------------
+
+test('pruning measures from when a session ended, not its last activity', () => {
+  const store = createStore();
+  // Worked right up to the moment it exited: lastActivityTs is recent, and the
+  // old prune keyed off that, so the tile outstayed its welcome by the full TTL.
+  store.upsert('a', { name: 'proj', ended: true });
+  const s = store.raw('a');
+  assert.ok(s.endedTs, 'endedTs is stamped on the transition');
+  s.endedTs = Date.now() - 61 * ONE_SEC;      // past the 60s ENDED_TTL_MS
+  s.lastActivityTs = Date.now();
+  store.upsert('a', {});                       // provoke a re-derive
+  assert.equal(store.raw('a').endedTs < Date.now() - 60 * ONE_SEC, true);
+});
+
+test('a session brought back to life loses its ended stamp', () => {
+  const store = createStore();
+  store.upsert('a', { name: 'proj', ended: true });
+  assert.ok(store.raw('a').endedTs);
+  store.touch('a', { ended: false });
+  assert.equal(store.raw('a').endedTs, null);
+  assert.equal(store.snapshot().sessions[0].ended, false);
+});
+
+test('entries() exposes every session so the poller can retire strays', () => {
+  const store = createStore();
+  store.upsert('a', { name: 'one' });
+  store.upsert('b', { name: 'two' });
+  assert.deepEqual(store.entries().map(([id]) => id).sort(), ['a', 'b']);
+});

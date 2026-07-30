@@ -22,6 +22,9 @@ export function startHooksSource({ store, queue }) {
     if (!known || !known.name) {
       base.name = registryName || (cwd ? path.basename(cwd) : undefined);
     }
+    // Any hook but SessionEnd is proof of life. The poller retires sessions the
+    // registry stops listing, so a session it can't see needs a way back.
+    if (known && known.ended && event !== 'SessionEnd') base.ended = false;
     ensureTail(store, id, payload.transcript_path || transcriptPathFor(id, cwd));
 
     switch (event) {
@@ -29,10 +32,13 @@ export function startHooksSource({ store, queue }) {
         store.touch(id, { ...base, ended: false, startedTs: Date.now(), stoppedTs: null });
         break;
       case 'UserPromptSubmit':
-        store.touch(id, { ...base, waitingForInput: false, stoppedTs: null, lastMessage: String(payload.prompt || '').slice(0, 200) });
+        // The turn has begun and stays begun until Stop. Without this the
+        // session reads idle through every pause for thought, because thinking
+        // writes nothing and fires no hook.
+        store.touch(id, { ...base, waitingForInput: false, stoppedTs: null, thinking: true, lastMessage: String(payload.prompt || '').slice(0, 200) });
         break;
       case 'PreToolUse':
-        store.touch(id, { ...base, currentTool: payload.tool_name || null, stoppedTs: null, waitingForInput: false });
+        store.touch(id, { ...base, currentTool: payload.tool_name || null, stoppedTs: null, waitingForInput: false, thinking: true });
         // A multiple-choice question is a tool call, so this is where the
         // device learns about it — no hook can answer one, only surface it.
         if (queue && payload.tool_name === 'AskUserQuestion') {
@@ -47,7 +53,7 @@ export function startHooksSource({ store, queue }) {
         }
         break;
       case 'Stop':
-        store.touch(id, { ...base, stoppedTs: Date.now(), currentTool: null, waitingForInput: true });
+        store.touch(id, { ...base, stoppedTs: Date.now(), currentTool: null, waitingForInput: true, thinking: false });
         break;
       case 'Notification':
         store.touch(id, { ...base, waitingForInput: true });

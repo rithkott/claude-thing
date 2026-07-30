@@ -4,6 +4,7 @@
 
 import {
   SESSION_CAP, SNAPSHOT_DEBOUNCE_MS, BUSY_WINDOW_MS, CELEBRATE_MS, ENDED_TTL_MS,
+  AGENT_ACTIVE_TTL_MS, THINKING_TTL_MS,
 } from '../config.js';
 
 export function createStore() {
@@ -12,11 +13,24 @@ export function createStore() {
   let onSnapshot = () => {};
   let onDetail = () => {};
 
+  // Thinking is silent: between submitting a prompt and the first tool call, and
+  // between any two tool calls, nothing writes to the transcript and no hook
+  // fires. Activity timestamps alone therefore decay to idle mid-turn, which is
+  // exactly when the session is most obviously working. Two signals cover that
+  // gap — the registry's own "working" verdict, and the prompt-submitted flag
+  // that stands until Stop.
+  function working(s, now) {
+    if (s.ended) return false;
+    if (s.thinking && now - (s.thinkingTs || 0) < THINKING_TTL_MS) return true;
+    if (s.agentActive && now - (s.agentActiveTs || 0) < AGENT_ACTIVE_TTL_MS) return true;
+    return now - s.lastActivityTs < BUSY_WINDOW_MS;
+  }
+
   function deriveState(s) {
     const now = Date.now();
     if (s.pendingPermission || s.waitingForInput) return 'attention';
     if (s.stoppedTs && now - s.stoppedTs < CELEBRATE_MS) return 'celebrate';
-    if (now - s.lastActivityTs < BUSY_WINDOW_MS && !s.ended) return 'busy';
+    if (working(s, now)) return 'busy';
     return 'idle';
   }
 
@@ -72,7 +86,15 @@ export function createStore() {
       s = { id, startedTs: Date.now(), lastActivityTs: Date.now() };
       sessions.set(id, s);
     }
+    const wasThinking = s.thinking;
     Object.assign(s, fields);
+    if (s.thinking && !wasThinking) s.thinkingTs = Date.now();
+    // Stamp the moment it ended, so pruning measures from then. Keying off
+    // lastActivityTs instead meant a session that worked right up to its exit
+    // sat on screen for the whole TTL, while a quiet one vanished at once.
+    if (s.ended && !s.endedTs) s.endedTs = Date.now();
+    if (!s.ended && s.endedTs) s.endedTs = null;
+    if (s.ended) { s.thinking = false; s.agentActive = false; }
     scheduleSnapshot();
     onDetail(detail(s));
     return s;
@@ -97,7 +119,7 @@ export function createStore() {
     const cutoff = Date.now() - ENDED_TTL_MS;
     let removed = 0;
     for (const [id, s] of sessions) {
-      if (s.ended && s.lastActivityTs < cutoff) {
+      if (s.ended && (s.endedTs || s.lastActivityTs) < cutoff) {
         sessions.delete(id);
         removed++;
       }
@@ -112,6 +134,7 @@ export function createStore() {
     upsert, touch, get, remove, snapshot,
     count: () => sessions.size,
     raw: (id) => sessions.get(id),
+    entries: () => [...sessions.entries()],
     set onSnapshot(fn) { onSnapshot = fn; },
     set onDetail(fn) { onDetail = fn; },
   };
