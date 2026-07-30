@@ -170,8 +170,9 @@ try {
   console.log(`\nwrote ${outZip} (${size} MB)`);
   console.log('flash with Terbium, or run deploy-to-dev — the emulator picks the newest zip.');
   if (!nocturnedBinary) {
-    console.log('\nreminder: device→Mac claude.* requests also need a nocturned built with');
-    console.log('patches/nocturned-claude-forward.patch (events work without it).');
+    console.log('\nreminder: this zip carries stock nocturned, which answers "Unknown method"');
+    console.log('to every claude.* request, so the device loads no sessions. On hardware it');
+    console.log('needs a nocturned built with patches/nocturned-claude-forward.patch.');
   }
 } finally {
   fs.rmSync(work, { recursive: true, force: true });

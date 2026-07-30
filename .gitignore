@@ -9,6 +9,9 @@ logs/
 emulator/.cache/
 emulator/logs/
 
+# scratch copy of nocturne-connector that build-connector-dmg.sh patches
+build/
+
 # firmware images are ~350MB — never commit them
 *.zip
 *.ext2

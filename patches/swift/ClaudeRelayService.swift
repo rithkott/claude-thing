@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 @MainActor
 final class ClaudeRelayService: ObservableObject {
@@ -123,12 +124,14 @@ final class ClaudeRelayService: ObservableObject {
 // MARK: - Integration
 //
 // Drop this file into nocturne-connector/macos/Nocturne/Services/, then make the
-// three edits described in patches/swift-connector.md:
-//   1. RPCManager.dispatch — route `claude.*` through claudeRelay.call(...)
-//   2. RPCManager init      — claudeRelay.onEvent → broadcastToDevices(...)
-//   3. NocturneApp.init     — construct it, give it statusProvider, call start()
-//      plus a `claudeRelayEnabled` toggle in SessionStore + SettingsView.
+// edits described in patches/swift-connector.md:
+//   1. RPCManager           — hold the relay, route `claude.*` through
+//                             claudeRelay.call(...), forward onEvent to
+//                             broadcastToDevices(...)
+//   2. NocturneApp.init     — construct it, give it statusProvider, call start()
+//   3. SessionStore         — a `claudeRelayEnabled` toggle, surfaced in
+//                             SettingsView
 //
-// Verified to parse with the Swift 5 compiler; it is not compiled against the
-// Nocturne target here, so the three call sites above are what to check first if
-// the build complains.
+// scripts/build-connector-dmg.sh does all of that automatically against a
+// nocturne-connector checkout; this file plus the notes are for doing it by
+// hand. Both were compiled against nocturne-connector 2.0.5 (Swift 5 mode).

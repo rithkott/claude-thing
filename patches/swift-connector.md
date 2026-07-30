@@ -140,11 +140,40 @@ final class ClaudeRelayService: ObservableObject {
 }
 ```
 
+> Everything below is applied automatically by
+> [`scripts/build-connector-dmg.sh`](../scripts/build-connector-dmg.sh), which
+> copies a connector checkout, patches it, and builds a DMG. Read on if you'd
+> rather do it by hand or the script's anchors stop matching a newer connector.
+
 ## 2. `Services/RPCManager.swift`
 
-Store the relay (constructor injection alongside the existing services) and add
-one branch to the `default:` arm of `dispatch(method:params:)`, next to the
-existing `spotify.` prefix test:
+Hold the relay and take it by constructor injection alongside the existing
+services. Do **not** give the parameter a default of `ClaudeRelayService()` —
+default arguments are evaluated outside the actor, and the relay is
+`@MainActor`, so that fails to compile:
+
+```swift
+    let claudeRelay: ClaudeRelayService
+
+    init(
+        spotify: SpotifyService,
+        nowPlaying: NowPlayingService,
+        analytics: AnalyticsService? = nil,
+        currentUserID: @escaping () -> String? = { nil },
+        claudeRelay: ClaudeRelayService
+    ) {
+        ...
+        self.claudeRelay = claudeRelay
+
+        claudeRelay.onEvent = { [weak self] topic, data in
+            Task { @MainActor [weak self] in
+                await self?.broadcastToDevices(topic: topic, data: RPCValueBridge.pack(data))
+            }
+        }
+```
+
+Then one branch in the `default:` arm of `dispatch(method:params:)`, right after
+the existing `spotify.` prefix test:
 
 ```swift
             if method.hasPrefix("claude.") {
@@ -154,38 +183,36 @@ existing `spotify.` prefix test:
             }
 ```
 
-Event direction, wired once during init (uses the existing
-`broadcastToDevices(topic:data:)`):
-
-```swift
-        claudeRelay.onEvent = { [weak self] topic, data in
-            Task { @MainActor in self?.broadcastToDevices(topic: topic, data: data) }
-        }
-```
-
 ## 3. `NocturneApp.swift`
 
-Construct the relay in `init()` with the other services, pass it to
-`RPCManager`, give it the Bluetooth summary, and start it:
+Construct the relay in `init()` before `RPCManager`, pass it in, give it the
+Bluetooth summary, and start it. Both captures are weak — `rpcManager` owns the
+relay that owns this closure:
 
 ```swift
         let claudeRelay = ClaudeRelayService()
-        claudeRelay.statusProvider = { [weak bluetooth] in
-            guard let bt = bluetooth, let conn = bt.carThingConnections.first else {
+        let rpcManager = RPCManager(
+            ...,
+            claudeRelay: claudeRelay
+        )
+        ...
+        claudeRelay.statusProvider = { [weak bluetooth, weak rpcManager] in
+            guard let conn = bluetooth?.carThingConnections.first else {
                 return ["connected": false]
             }
+            let info = rpcManager?.deviceInfo(for: conn.address)
             return [
                 "connected": true,
                 "device": conn.name ?? "Car Thing",
                 "address": conn.address,
-                "serial": rpcManager.deviceInfo(for: conn.address)?.serial ?? "",
-                "firmware": rpcManager.deviceInfo(for: conn.address)?.version ?? "",
+                "serial": info?.serialNumber ?? "",
+                "firmware": info?.version ?? ""
             ]
         }
         claudeRelay.start()
 ```
 
-Also call `claudeRelay.pushStatus()` from the existing Bluetooth connect /
+Optionally call `claudeRelay.pushStatus()` from the Bluetooth connect /
 disconnect handlers so the daemon's webpage updates immediately instead of on
 the next 10 s tick.
 
@@ -194,15 +221,29 @@ the next 10 s tick.
 Add a persisted toggle following the `systemMediaEnabled` pattern:
 
 ```swift
+    private let claudeRelayEnabledKey = "nocturne.claudeRelayEnabled"
+
     var claudeRelayEnabled: Bool {
-        get { defaults.bool(forKey: "nocturne.claudeRelayEnabled") }
-        set { defaults.set(newValue, forKey: "nocturne.claudeRelayEnabled") }
+        get { UserDefaults.standard.bool(forKey: claudeRelayEnabledKey) }
+        set { UserDefaults.standard.set(newValue, forKey: claudeRelayEnabledKey) }
     }
 ```
 
-Surface it in `Views/Pages/SettingsView.swift` as a new section ("Claude Mode —
-relay Claude Code sessions to the Car Thing"), and optionally add a row to
-`DashboardView` showing `claudeRelay.connected`.
+Surface it in `Views/Pages/SettingsView.swift` as a new section. The view needs
+`@EnvironmentObject var rpc: RPCManager` (already injected by `rootContent`) to
+read `rpc.claudeRelay.connected`, and the toggle starts/stops the relay as well
+as persisting:
+
+```swift
+                            Toggle("", isOn: Binding(
+                                get: { claudeRelayOn },
+                                set: { on in
+                                    claudeRelayOn = on
+                                    SessionStore.shared.claudeRelayEnabled = on
+                                    if on { rpc.claudeRelay.start() } else { rpc.claudeRelay.stop() }
+                                }
+                            ))
+```
 
 ---
 
