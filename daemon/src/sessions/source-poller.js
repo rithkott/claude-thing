@@ -3,6 +3,7 @@
 // Observed shape: {id, sessionId, cwd, name, kind, startedAt, state}
 
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { POLL_INTERVAL_MS } from '../config.js';
 import { isOwnSession } from '../own-sessions.js';
@@ -55,6 +56,22 @@ function applyAgentState(fields, agentState) {
   }
 }
 
+// The terminal you type into and the agent that answers are two different
+// processes, and both register themselves. Driving a background job from a
+// terminal therefore lists twice: the job (kind "background", owner of the
+// transcript) and the window attached to it (kind "interactive", owner of
+// nothing). Only the first is a conversation — the second is a viewport onto
+// it, and putting both on the grid draws one session as two tiles.
+//
+// A transcript is what separates them. Every real conversation writes one; a
+// viewport never does. A brand-new interactive session has none either, but it
+// has nothing to show yet, so waiting for its first message is right anyway.
+export function isViewport(item, id, cwd) {
+  if (String(item.kind || '') !== 'interactive') return false;
+  const transcript = transcriptPathFor(id, cwd);
+  return !transcript || !fs.existsSync(transcript);
+}
+
 export function startPollerSource({ store }) {
   let warned = false;
   const seen = new Set();
@@ -82,9 +99,12 @@ export function startPollerSource({ store }) {
         if (!id) continue;
         // the daemon's own usage polls are Claude Code sessions too
         if (isOwnSession(id)) continue;
-        current.add(id);
 
         const cwd = pick(item, ['cwd', 'workingDirectory', 'project'], '');
+        // Left out of `current` as well as skipped, so a viewport already in the
+        // store from a previous poll gets retired rather than stranded.
+        if (isViewport(item, id, cwd)) continue;
+        current.add(id);
         const startedAt = pick(item, ['startedAt', 'startedTs'], null);
         const isNew = !store.raw(id);
         const fields = {
