@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { PERMISSION_HOLD_MS } from './config.js';
 import { log } from './log.js';
 
-export function createPermissionBridge({ emit, store }) {
+export function createPermissionBridge({ emit, store, queue }) {
   const pending = new Map(); // requestId -> {res, timer, sessionId}
 
   function hookDecision(behavior) {
@@ -46,6 +46,19 @@ export function createPermissionBridge({ emit, store }) {
 
   // Called by http-server with the parsed hook payload + held response object.
   function onHookRequest(payload, res) {
+    // Plan approval is not answerable through this hook: Claude Code ignores
+    // the decision for ExitPlanMode and keeps its dialog up (verified
+    // v2.1.220), so holding the request only makes the device tile lie.
+    // Answer "ask" immediately and surface the plan as a question instead.
+    if (queue && payload.tool_name === 'ExitPlanMode') {
+      try {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(hookDecision('ask'));
+      } catch {}
+      queue.onPlanApproval(payload);
+      return;
+    }
+
     const requestId = crypto.randomUUID();
     const sessionId = payload.session_id || null;
     const tool = payload.tool_name || 'unknown';

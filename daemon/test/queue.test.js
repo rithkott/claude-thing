@@ -137,6 +137,52 @@ test('the terminal answering it clears our copy', () => {
   assert.equal(resolved.data.resolution, 'answered');
 });
 
+const PLAN_HOOK = {
+  session_id: 'sess-1',
+  tool_name: 'ExitPlanMode',
+  tool_input: { plan: '# Fix: session tiles vanish\n\n## Context\n\nlots of detail' },
+};
+
+test('a plan approval becomes a question with the two approve choices', () => {
+  const { queue, events, store } = setup();
+  queue.onPlanApproval(PLAN_HOOK);
+
+  const ev = events.find((e) => e.topic === 'claude.question.request');
+  assert.ok(ev);
+  assert.equal(ev.data.kind, 'question', 'renders on the device like any question');
+  assert.equal(ev.data.header, 'PLAN');
+  assert.equal(ev.data.question, 'Fix: session tiles vanish', 'plan heading, hashes stripped');
+  assert.equal(ev.data.options.length, 2, 'only the approve paths — declining needs typed feedback');
+  assert.match(ev.data.options[0].label, /bypass permissions/);
+  assert.match(ev.data.options[1].label, /manually approve/);
+  assert.equal(store.get('sess-1').state, 'attention', 'session shows as blocked');
+});
+
+test('answering a plan types the digit of the chosen approve option', async () => {
+  const { queue, calls } = setup();
+  queue.onPlanApproval(PLAN_HOOK);
+  const [ask] = queue.list();
+
+  const res = await queue.answerQuestion(ask.id, 1);
+  assert.equal(res.accepted, true);
+  assert.deepEqual(calls.typed, ['2'], 'option index 1 is keypress "2"');
+  assert.equal(queue.size(), 0);
+});
+
+test('a plan with no heading still queues with a fallback question', () => {
+  const { queue } = setup();
+  queue.onPlanApproval({ ...PLAN_HOOK, tool_input: { plan: '' } });
+  const [ask] = queue.list();
+  assert.equal(ask.question, 'Ready to code?');
+});
+
+test('the terminal answering the plan dialog clears our copy too', () => {
+  const { queue } = setup();
+  queue.onPlanApproval(PLAN_HOOK);
+  queue.onQuestionAnswered({ session_id: 'sess-1' });
+  assert.equal(queue.size(), 0);
+});
+
 test('list is oldest-first', () => {
   const { queue } = setup();
   queue.onQuestion(QUESTION_HOOK);
