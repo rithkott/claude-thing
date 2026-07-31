@@ -37,7 +37,9 @@ export const HOOK_TIMEOUT_S = 600;
 export const SESSION_CAP = 0;
 export const SNAPSHOT_DEBOUNCE_MS = 500;
 export const BUSY_WINDOW_MS = 10_000;    // activity within this = busy
-export const CELEBRATE_MS = 20_000;      // celebrate decays to idle after this
+// A finished turn is worth glancing at, and twenty seconds was shorter than the
+// time it takes to look up at the device. A minute is long enough to notice.
+export const CELEBRATE_MS = 60_000;      // celebrate decays to idle after this
 export const POLL_INTERVAL_MS = 3_000;   // claude agents --json poll
 // The registry's "working" verdict is the only thing that stays true while the
 // model thinks and nothing is being written. Trust it for a few poll intervals

@@ -42,10 +42,12 @@ test('a recent stop celebrates, an old stop does not', () => {
   store.upsert('a', { name: 'proj', stoppedTs: Date.now() - ONE_SEC, waitingForInput: false });
   assert.equal(stateOf(store, 'a'), 'celebrate');
 
+  // Comfortably past CELEBRATE_MS rather than exactly on it, so raising the
+  // window doesn't leave this asserting against a boundary it lands on.
   store.upsert('b', {
     name: 'proj',
-    stoppedTs: Date.now() - 60 * ONE_SEC,
-    lastActivityTs: Date.now() - 60 * ONE_SEC,
+    stoppedTs: Date.now() - 5 * 60 * ONE_SEC,
+    lastActivityTs: Date.now() - 5 * 60 * ONE_SEC,
     waitingForInput: false,
   });
   assert.equal(stateOf(store, 'b'), 'idle');
