@@ -74,7 +74,10 @@ export function createStore() {
       active: list.filter((s) => s.state === 'busy').length,
       attention: list.filter((s) => s.state === 'attention').length,
     };
-    return { sessions: list, stats };
+    // The device has no timezone data (its clock runs UTC), so the Mac's
+    // offset rides every snapshot and the device renders Mac-local time.
+    // Computed per snapshot rather than once so a DST flip propagates.
+    return { sessions: list, stats, tzOffsetMin: new Date().getTimezoneOffset() };
   }
 
   function scheduleSnapshot() {
