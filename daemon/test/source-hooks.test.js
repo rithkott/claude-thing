@@ -26,6 +26,25 @@ test('a SessionEnd for a live session still retires it', () => {
   assert.equal(store.count(), 0, 'gone the moment it ends');
 });
 
+test('a finished turn celebrates instead of asking for attention', () => {
+  const store = createStore();
+  const { onHookEvent } = startHooksSource({ store });
+  onHookEvent('SessionStart', { session_id: 'turn-1', cwd: '/Users/dev/proj' });
+  onHookEvent('UserPromptSubmit', { session_id: 'turn-1', cwd: '/Users/dev/proj', prompt: 'go' });
+  onHookEvent('Stop', { session_id: 'turn-1', cwd: '/Users/dev/proj' });
+  assert.equal(store.get('turn-1').state, 'celebrate');
+});
+
+test('a real block still asks for attention, and the next Stop clears it', () => {
+  const store = createStore();
+  const { onHookEvent } = startHooksSource({ store });
+  onHookEvent('SessionStart', { session_id: 'block-1', cwd: '/Users/dev/proj' });
+  onHookEvent('Notification', { session_id: 'block-1', cwd: '/Users/dev/proj' });
+  assert.equal(store.get('block-1').state, 'attention');
+  onHookEvent('Stop', { session_id: 'block-1', cwd: '/Users/dev/proj' });
+  assert.equal(store.get('block-1').state, 'celebrate', 'a stale block does not outlive the turn');
+});
+
 test("the daemon's own usage runs are ignored whatever hook they fire", () => {
   const store = createStore();
   const { onHookEvent } = startHooksSource({ store });

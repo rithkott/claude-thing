@@ -60,7 +60,12 @@ export function startHooksSource({ store, queue }) {
         }
         break;
       case 'Stop':
-        store.touch(id, { ...base, stoppedTs: Date.now(), currentTool: null, waitingForInput: true, thinking: false });
+        // A finished turn is not a block. Flagging waitingForInput here made
+        // attention win the state machine's first test, so every completed turn
+        // rendered ATTENTION forever instead of DONE decaying to IDLE. Reserve
+        // waitingForInput for real blocks: Notification, AskUserQuestion,
+        // permissions.
+        store.touch(id, { ...base, stoppedTs: Date.now(), currentTool: null, waitingForInput: false, thinking: false });
         break;
       case 'Notification':
         store.touch(id, { ...base, waitingForInput: true });
