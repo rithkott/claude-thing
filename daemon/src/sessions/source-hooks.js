@@ -47,6 +47,9 @@ export function startHooksSource({ store, queue }) {
         // session reads idle through every pause for thought, because thinking
         // writes nothing and fires no hook.
         store.touch(id, { ...base, waitingForInput: false, stoppedTs: null, thinking: true, lastMessage: String(payload.prompt || '').slice(0, 200) });
+        // A new prompt means no dialog is up. A declined plan or an Esc'd
+        // question fires no PostToolUse, so this is where those asks die.
+        if (queue) queue.onQuestionAnswered(payload);
         break;
       case 'PreToolUse':
         store.touch(id, { ...base, currentTool: payload.tool_name || null, stoppedTs: null, waitingForInput: false, thinking: true });
@@ -59,7 +62,10 @@ export function startHooksSource({ store, queue }) {
         break;
       case 'PostToolUse':
         store.touch(id, { ...base, currentTool: null });
-        if (queue && payload.tool_name === 'AskUserQuestion') {
+        // ExitPlanMode completing means the plan dialog was answered — the
+        // plan ask came in through the permission bridge, but resolves here.
+        if (queue && (payload.tool_name === 'AskUserQuestion' || payload.tool_name === 'ExitPlanMode')) {
+          store.touch(id, { waitingForInput: false });
           queue.onQuestionAnswered(payload);
         }
         break;
@@ -69,6 +75,8 @@ export function startHooksSource({ store, queue }) {
         // rendered ATTENTION forever instead of DONE decaying to IDLE. Reserve
         // waitingForInput for real blocks: permission asks and AskUserQuestion.
         store.touch(id, { ...base, stoppedTs: Date.now(), currentTool: null, waitingForInput: false, thinking: false });
+        // The turn ending also ends any dialog we still hold an ask for.
+        if (queue) queue.onQuestionAnswered(payload);
         break;
       case 'Notification': {
         // Claude Code fires Notification for two unrelated things: a permission

@@ -12,9 +12,9 @@ import { log } from './log.js';
 
 const hub = createHub();
 const store = createStore();
-const permissionBridge = createPermissionBridge({ emit: hub.emit, store });
 const focus = createFocus();
 const queue = createQueue({ emit: hub.emit, store, focus });
+const permissionBridge = createPermissionBridge({ emit: hub.emit, store, queue });
 const usage = createUsage({ emit: hub.emit });
 const sources = createSources({ store, permissionBridge, queue });
 

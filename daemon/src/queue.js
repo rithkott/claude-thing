@@ -8,6 +8,10 @@
 //     from the device means focusing that terminal and typing the choice.
 //     If macOS denies Automation, we focus the window and tell the user to
 //     press the key themselves.
+//   • Plan approval (ExitPlanMode) fires a PermissionRequest hook but IGNORES
+//     the hook's decision — the terminal dialog stays up after behavior:"allow"
+//     and the session stays blocked. So plans go through the question path:
+//     surface on the device, answer by focus + keypress.
 
 import crypto from 'node:crypto';
 import { log } from './log.js';
@@ -49,6 +53,35 @@ export function createQueue({ emit, store, focus }) {
       emit('claude.question.request', ask);
       log('QQ', `question queued: ${ask.header} (${ask.options.length} options)`);
     }
+  }
+
+  // Called from the PermissionRequest hook when Claude presents a plan. The
+  // dialog's approve choices are always the first two entries, and picking
+  // either is a single digit keypress — exactly a question. The decline paths
+  // need typed feedback, so they stay on the keyboard.
+  function onPlanApproval(payload) {
+    const plan = String((payload.tool_input || {}).plan || '');
+    const heading = plan.split('\n').find((l) => l.trim());
+    const id = crypto.randomUUID();
+    const ask = {
+      kind: 'question',
+      id,
+      sessionId: payload.session_id || null,
+      sessionName: sessionName(payload.session_id),
+      header: 'PLAN',
+      question: (heading || 'Ready to code?').replace(/^#+\s*/, '').slice(0, 300),
+      options: [
+        { label: 'Yes, bypass permissions', description: 'approve the plan and run without permission prompts' },
+        { label: 'Yes, manually approve', description: 'approve the plan and confirm each edit' },
+      ],
+      multiSelect: false,
+      createdTs: Date.now(),
+    };
+    questions.set(id, ask);
+    setTimeout(() => expire(id), QUESTION_TTL_MS).unref();
+    if (ask.sessionId) store.touch(ask.sessionId, { waitingForInput: true });
+    emit('claude.question.request', ask);
+    log('QQ', `plan queued: ${ask.question.slice(0, 60)}`);
   }
 
   // The terminal prompt is gone once the tool returns, so drop ours too.
@@ -108,5 +141,5 @@ export function createQueue({ emit, store, focus }) {
     return [...questions.values()].sort((a, b) => a.createdTs - b.createdTs);
   }
 
-  return { onQuestion, onQuestionAnswered, answerQuestion, list, size: () => questions.size };
+  return { onQuestion, onPlanApproval, onQuestionAnswered, answerQuestion, list, size: () => questions.size };
 }

@@ -24,12 +24,13 @@ function decisionOf(res) {
   return JSON.parse(res.body).hookSpecificOutput.decision.behavior;
 }
 
-function setup() {
+function setup(queue) {
   const events = [];
   const store = createStore();
   const bridge = createPermissionBridge({
     emit: (topic, data) => events.push({ topic, data }),
     store,
+    queue,
   });
   return { bridge, store, events };
 }
@@ -132,6 +133,24 @@ test('the hook giving up (socket close) clears our state too', () => {
   assert.equal(store.get('sess-1').pendingPermission, false);
   assert.equal(bridge.pendingCount(), 0);
   assert.ok(events.some((e) => e.topic === 'claude.permission.resolved'));
+});
+
+test('ExitPlanMode is never held — hook gets "ask" back, plan goes to the queue', () => {
+  const planCalls = [];
+  const { bridge, events } = setup({ onPlanApproval: (p) => planCalls.push(p) });
+  const res = fakeRes();
+  bridge.onHookRequest({
+    session_id: 'sess-1',
+    tool_name: 'ExitPlanMode',
+    tool_input: { plan: '# Big plan' },
+  }, res);
+
+  assert.equal(decisionOf(res), 'ask', 'terminal dialog stays authoritative');
+  assert.equal(res.status, 200);
+  assert.equal(bridge.pendingCount(), 0, 'nothing held — the hook decision cannot approve a plan');
+  assert.equal(planCalls.length, 1, 'routed to the queue as a question');
+  assert.equal(planCalls[0].tool_input.plan, '# Big plan');
+  assert.ok(!events.some((e) => e.topic === 'claude.permission.request'), 'no permission tile');
 });
 
 test('file and url tools summarise their salient argument', () => {
