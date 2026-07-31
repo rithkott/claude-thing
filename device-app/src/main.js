@@ -9,6 +9,7 @@ import { renderAsk, setQueueContext } from './screens/ask.js';
 import { renderUsage } from './screens/usage.js';
 import { renderAmbient } from './screens/ambient.js';
 import * as mascot from './mascot.js';
+import { renderBluetooth, btMenuActions, renderBtPairing } from './screens/bluetooth.js';
 
 var app = document.getElementById('app');
 var banner = document.getElementById('banner');
@@ -43,6 +44,8 @@ function render() {
     app.innerHTML = renderQueue(state);
   } else if (r.name === 'usage') {
     app.innerHTML = renderUsage(state);
+  } else if (r.name === 'bt') {
+    app.innerHTML = renderBluetooth(state);
   } else if (r.name === 'ask' && r.arg) {
     var ask = store.getAsk(r.arg);
     if (!ask) return nav(returnTo);
@@ -53,6 +56,8 @@ function render() {
     marquee();
   }
   if (r.name !== 'ambient') mascot.hide();
+  // pairing is a device-wide event, not a screen: show it wherever you are
+  if (state.btPairing) app.innerHTML += renderBtPairing(state.btPairing);
   banner.className = state.daemonConnected ? 'banner' : 'banner show';
 }
 
@@ -120,6 +125,14 @@ onAction('dial', function (dir) {
   } else if (r.name === 'list') {
     var m = state.sessions.length;
     if (m) store.update({ selectedIndex: Math.max(0, Math.min(m - 1, state.selectedIndex + dir)) });
+  } else if (r.name === 'bt') {
+    if (state.btMenu) {
+      var dev = btDevice(state.btMenu);
+      var mmax = (dev ? btMenuActions(dev).length : 1) - 1;
+      store.update({ btMenuIndex: Math.max(0, Math.min(mmax, state.btMenuIndex + dir)) });
+    } else {
+      store.update({ btIndex: Math.max(0, Math.min(state.btDevices.length, state.btIndex + dir)) });
+    }
   } else if (r.name === 'ambient') {
     nav('#/list');
   }
@@ -141,6 +154,17 @@ onAction('select', function () {
   } else if (r.name === 'list') {
     var s = state.sessions[state.selectedIndex];
     if (s) openSession(s.id);
+  } else if (r.name === 'bt') {
+    if (state.btMenu) {
+      var dev = btDevice(state.btMenu);
+      if (dev) btAct(dev, btMenuActions(dev)[state.btMenuIndex]);
+      else store.update({ btMenu: null });
+    } else if (state.btIndex === 0) {
+      toggleDiscoverable();
+    } else {
+      var target = state.btDevices[state.btIndex - 1];
+      if (target) store.update({ btMenu: target.address, btMenuIndex: 0 });
+    }
   } else if (r.name === 'ambient') {
     nav('#/list');
   }
@@ -148,9 +172,15 @@ onAction('select', function () {
 
 onAction('back', function () {
   var r = route();
+  // pairing overlay sits on top of everything, so back peels it off first
+  if (store.get().btPairing) return store.update({ btPairing: null });
   if (r.name === 'ask') skipAsk(r.arg);
   else if (r.name === 'session') nav('#/list');
   else if (r.name === 'queue' || r.name === 'usage') nav('#/list');
+  else if (r.name === 'bt') {
+    if (store.get().btMenu) store.update({ btMenu: null });
+    else nav(btReturnTo);
+  }
   else if (r.name === 'list') nav('#/ambient');
   else nav('#/list');
 });
@@ -179,6 +209,98 @@ onAction('ambient', function () {
   nav(route().name === 'ambient' ? '#/list' : '#/ambient');
 });
 
+// ---- bluetooth --------------------------------------------------------------
+
+var btReturnTo = '#/list';   // where hold-m was pressed, restored on back
+
+onAction('bt-manage', function () {
+  if (route().name === 'bt') return nav(btReturnTo);
+  btReturnTo = window.location.hash || '#/list';
+  store.update({ btIndex: 0, btMenu: null, btMenuIndex: 0 });
+  nav('#/bt');
+  refreshBtDevices();
+});
+
+// One fetch on open, one per pairing change — never on a timer. The daemon's
+// watchdog misreads a polled bluetooth.devices.list as a stuck session.
+function refreshBtDevices() {
+  ws.request('bluetooth.devices.list').then(function (d) {
+    store.update({ btDevices: (d && d.devices) || [] });
+  }).catch(function () {});
+}
+
+function btDevice(address) {
+  var devices = store.get().btDevices;
+  for (var i = 0; i < devices.length; i++) {
+    if (devices[i].address === address) return devices[i];
+  }
+  return null;
+}
+
+function btDeviceIndex(address) {
+  var devices = store.get().btDevices;
+  for (var i = 0; i < devices.length; i++) {
+    if (devices[i].address === address) return i;
+  }
+  return -1;
+}
+
+function toggleDiscoverable() {
+  var want = !store.get().btDiscoverable;
+  ws.request('bluetooth.discoverable', { discoverable: want }).then(function (res) {
+    if (res && res.status === 'requested') {
+      // optimistic — the bluetooth.discoverable event confirms or corrects
+      store.update({ btDiscoverable: want });
+      toast(want ? 'PAIRING MODE ON' : 'PAIRING MODE OFF');
+    }
+  }).catch(function () { toast('FAILED'); });
+}
+
+// BT connects regularly outrun the 10s default request timeout, hence 30s.
+var BT_CONNECT_TIMEOUT_MS = 30000;
+
+function btAct(device, action) {
+  var addr = device.address;
+  store.update({ btMenu: null, btMenuIndex: 0 });
+  if (action === 'CANCEL' || !action) return;
+
+  if (action === 'CONNECT') {
+    store.update({ btBusy: addr });
+    ws.request('bluetooth.device.connect', { address: addr }, BT_CONNECT_TIMEOUT_MS)
+      .then(function (res) {
+        store.update({ btBusy: null });
+        var status = res && res.status;
+        if (status === 'connected') toast('CONNECTED');
+        else if (status === 'waiting_for_macos_connector' || status === 'waiting_for_android') toast('WAITING FOR PHONE');
+        else toast('CONNECT SENT');
+      })
+      .catch(function () { store.update({ btBusy: null }); toast('CONNECT FAILED'); });
+    return;
+  }
+
+  if (action === 'DISCONNECT') {
+    store.update({ btBusy: addr });
+    ws.request('bluetooth.device.disconnect', { address: addr }, BT_CONNECT_TIMEOUT_MS)
+      .then(function () { store.update({ btBusy: null }); toast('DISCONNECTED'); })
+      .catch(function () { store.update({ btBusy: null }); toast('FAILED'); });
+    return;
+  }
+
+  if (action === 'FORGET') {
+    ws.request('bluetooth.device.forget', { address: addr })
+      .then(function () {
+        var next = [];
+        var devices = store.get().btDevices;
+        for (var i = 0; i < devices.length; i++) {
+          if (devices[i].address !== addr) next.push(devices[i]);
+        }
+        store.update({ btDevices: next, btIndex: Math.min(store.get().btIndex, next.length) });
+        toast('FORGOTTEN');
+      })
+      .catch(function () { toast('FAILED'); });
+  }
+}
+
 onAction('tap', function (t) {
   var state = store.get();
   var hero = state.asks[Math.min(state.queueIndex, state.asks.length - 1)];
@@ -189,6 +311,15 @@ onAction('tap', function (t) {
   else if (t.action === 'queue-allow' && hero) answerFromQueue(hero, 0);
   else if (t.action === 'queue-deny' && hero) answerFromQueue(hero, 1);
   else if (t.action === 'queue-answer' && hero) openAsk(hero.id);
+  else if (t.action === 'bt-toggle') toggleDiscoverable();
+  else if (t.action === 'bt-device' && t.id) {
+    var idx = btDeviceIndex(t.id);
+    store.update({ btMenu: t.id, btMenuIndex: 0, btIndex: idx >= 0 ? idx + 1 : state.btIndex });
+  } else if (t.action === 'bt-menu-act' && state.btMenu) {
+    var dev = btDevice(state.btMenu);
+    if (dev) btAct(dev, btMenuActions(dev)[Number(t.id)]);
+    else store.update({ btMenu: null });
+  }
 });
 
 // ---- actions ---------------------------------------------------------------
@@ -339,6 +470,60 @@ ws.on('claude.question.resolved', function (q) { onResolved(q.id, q.resolution);
 
 ws.on('claude.daemon.status', function (s) {
   store.update({ daemonConnected: !!s.connected });
+});
+
+// ---- bluetooth events -------------------------------------------------------
+
+ws.on('bluetooth.device', function (d) {
+  if (!d || !d.device) return;
+  var devices = store.get().btDevices;
+  if (d.event === 'removed') {
+    var next = [];
+    for (var i = 0; i < devices.length; i++) {
+      if (devices[i].address !== d.device) next.push(devices[i]);
+    }
+    store.update({ btDevices: next, btIndex: Math.min(store.get().btIndex, next.length) });
+    return;
+  }
+  if (d.event === 'connected' || d.event === 'disconnected') {
+    for (var j = 0; j < devices.length; j++) {
+      if (devices[j].address === d.device) {
+        devices[j].connected = d.event === 'connected';
+        store.update({});
+        return;
+      }
+    }
+  }
+});
+
+// `paired` carries a MAC, `pairing_succeeded` a dbus path — the formats don't
+// match each other or our list keys, so refetch instead of string-matching.
+ws.on('bluetooth.pairing', function (d) {
+  d = d || {};
+  if (d.event === 'paired' || d.type === 'pairing_succeeded') {
+    store.update({ btPairing: null });
+    toast('PAIRED');
+    refreshBtDevices();
+  } else if (d.event === 'unpaired') {
+    refreshBtDevices();
+  }
+});
+
+ws.on('bluetooth.agent', function (d) {
+  d = d || {};
+  if (d.type === 'bluetooth_pin') {
+    store.update({ btPairing: { address: d.address, name: d.name, pin: d.pin } });
+  } else if (d.event === 'cancel') {
+    if (store.get().btPairing) toast('PAIRING CANCELLED');
+    store.update({ btPairing: null });
+  }
+  // everything else (pin/passkey requests, authorization) is auto-handled
+  // by the daemon's agent
+});
+
+// the daemon can time discoverable out on its own; keep the toggle honest
+ws.on('bluetooth.discoverable', function (d) {
+  store.update({ btDiscoverable: !!(d && d.discoverable) });
 });
 
 // ---- boot -------------------------------------------------------------------

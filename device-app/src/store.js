@@ -15,6 +15,13 @@ var state = {
   daemonConnected: true,
   selectedIndex: 0,     // session grid cursor
   queueIndex: 0,        // queue list cursor
+  btDevices: [],        // [{address, name, paired, connected}]
+  btDiscoverable: false,
+  btIndex: 0,           // bluetooth cursor: 0 = pairing toggle, 1..n = devices
+  btMenu: null,         // address of the device whose action submenu is open
+  btMenuIndex: 0,       // cursor within that submenu
+  btBusy: null,         // address with an in-flight connect/disconnect
+  btPairing: null,      // {address, name, pin} while a phone is pairing
 };
 
 var subs = [];
