@@ -3,7 +3,8 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
   ZIP_SEARCH_DIRS, ZIP_PATTERN, CACHE_DIR,
-  UI_PATH_IN_ROOTFS, VERSION_PATH_IN_ROOTFS, DEBUGFS_CANDIDATES,
+  UI_PATH_IN_ROOTFS, VERSION_PATH_IN_ROOTFS, FONTS_PATH_IN_ROOTFS,
+  DEBUGFS_CANDIDATES,
 } from './config.js';
 
 function findDebugfs() {
@@ -90,11 +91,46 @@ function extractSlot(debugfs, zipPath, slot, cacheDir) {
     version = { version: m ? m[0] : 'unknown', shortVersion: m ? m[0] : 'unknown' };
   }
 
+  rdumpFonts(debugfs, ext2, staging, cacheDir);
+
   const uiDir = path.join(cacheDir, 'ui');
   fs.rmSync(uiDir, { recursive: true, force: true });
   fs.renameSync(uiStaged, uiDir);
   fs.rmSync(tmpDir, { recursive: true, force: true });
   return { uiDir, version };
+}
+
+// Device text renders with the rootfs fonts (Inter, Circular, Noto), not
+// whatever macOS falls back to — pull them out so the static server can
+// declare them via @font-face. Fail-soft: a fontless rootfs just skips this.
+function rdumpFonts(debugfs, ext2, staging, cacheDir) {
+  try {
+    const fontStaging = path.join(staging, 'fonts-staging');
+    fs.mkdirSync(fontStaging, { recursive: true });
+    execFileSync(debugfs, ['-R', `rdump ${FONTS_PATH_IN_ROOTFS} ${fontStaging}`, ext2], { stdio: 'pipe' });
+    const dumped = path.join(fontStaging, path.basename(FONTS_PATH_IN_ROOTFS));
+    if (!fs.existsSync(dumped)) return;
+    const fontsDir = path.join(cacheDir, 'fonts');
+    fs.rmSync(fontsDir, { recursive: true, force: true });
+    fs.renameSync(dumped, fontsDir);
+  } catch { /* no fonts in this rootfs */ }
+}
+
+// Older cache entries predate font extraction: re-open just the ext2 to
+// backfill cacheDir/fonts without invalidating the ui/ dir (which carries the
+// grafted claude app until the next deploy).
+function extractFontsOnly(zipPath, slot, cacheDir) {
+  const debugfs = findDebugfs();
+  const tmpDir = path.join(cacheDir, 'fonts-tmp');
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+  fs.mkdirSync(tmpDir, { recursive: true });
+  try {
+    const ext2Name = `system_${slot}.ext2`;
+    execFileSync('unzip', ['-o', '-q', zipPath, ext2Name, '-d', tmpDir], { stdio: 'pipe' });
+    rdumpFonts(debugfs, path.join(tmpDir, ext2Name), tmpDir, cacheDir);
+  } catch { /* fail-soft */ } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 }
 
 function pruneCache(keepDir) {
@@ -121,7 +157,9 @@ export function resolveFirmware() {
 
   if (fs.existsSync(metaPath) && fs.existsSync(path.join(cacheDir, 'ui', 'index.html'))) {
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-    return { ...meta, uiDir: path.join(cacheDir, 'ui'), cached: true };
+    const fontsDir = path.join(cacheDir, 'fonts');
+    if (!fs.existsSync(fontsDir)) extractFontsOnly(meta.zipPath, meta.slot, cacheDir);
+    return { ...meta, uiDir: path.join(cacheDir, 'ui'), fontsDir, cached: true };
   }
 
   const debugfs = findDebugfs();
@@ -153,7 +191,7 @@ export function resolveFirmware() {
   };
   fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
   pruneCache(cacheDir);
-  return { ...meta, uiDir: result.uiDir, cached: false };
+  return { ...meta, uiDir: result.uiDir, fontsDir: path.join(cacheDir, 'fonts'), cached: false };
 }
 
 if (process.argv.includes('--check')) {

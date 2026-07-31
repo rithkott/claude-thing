@@ -17,29 +17,27 @@
         <button class="settings" data-key="m" data-code="KeyM" title="Settings / power menu (key M, hold for power)"><span></span></button>
       </div>
 
-      <div class="face">
-        <div class="screen-bezel">
-          <iframe id="screen" src="/" width="800" height="480" title="Car Thing screen"></iframe>
-          <div id="power-overlay" class="power-overlay hidden">
-            <div class="power-msg">Powered off — click to boot</div>
-          </div>
-        </div>
-
-        <div class="right-col">
-          <div id="dial" class="dial" title="Dial: drag or scroll to turn, click to press (Enter / arrow keys)">
-            <div id="dial-knob" class="dial-knob">
-              <div class="dial-ridges"></div>
-              <div class="dial-dot"></div>
-            </div>
-          </div>
-          <button id="back-btn" class="back-btn" data-key="Escape" data-code="Escape" title="Back (Escape)"></button>
+      <div class="screen-bezel">
+        <iframe id="screen" src="/" width="800" height="480" title="Car Thing screen"></iframe>
+        <div id="power-overlay" class="power-overlay hidden">
+          <div class="power-msg">Powered off — click to boot</div>
         </div>
       </div>
+
+      <div class="dial-shadow"></div>
+      <div id="dial" class="dial" title="Dial: drag or scroll to turn, click to press (Enter / arrow keys)">
+        <div id="dial-knob" class="dial-knob">
+          <div class="dial-ridges"></div>
+          <div class="dial-dot"></div>
+        </div>
+      </div>
+      <button id="back-btn" class="back-btn" data-key="Escape" data-code="Escape" title="Back (Escape)"></button>
     </div>
 
     <div class="status-strip">
       <span id="st-version">firmware: …</span>
       <span id="st-zip"></span>
+      <span id="st-fidelity"></span>
       <span id="st-ws" class="ws-state">ws: connecting…</span>
       <span class="hint">keys: 1–4 presets · M settings · Enter dial · Esc back · ←/→ dial turn</span>
     </div>

@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   HOST, HTTP_PORT, WS_PORT, PID_FILE, LOG_DIR,
   CHROME_PROFILE_DIR, EMULATOR_URL, CACHE_DIR, PROJECT_ROOT,
-  WINDOW_W, WINDOW_H,
+  WINDOW_W, WINDOW_H, CDP_PORT, JS_HEAP_MB, CPU_THROTTLE_RATE,
 } from '../src/config.js';
 import { resolveFirmware } from '../src/firmware.js';
 
@@ -164,22 +164,38 @@ try {
   await sleep(600);
 } catch {}
 
+const chromeArgs = [
+  `--app=${EMULATOR_URL}`,
+  // 1 CSS pixel = 1 physical pixel, so the 800×480 panel is rendered at its
+  // true resolution instead of being supersampled by the display's HiDPI
+  // scale factor. Without this the emulated screen shows more detail and
+  // smoother edges than the real device ever can.
+  '--force-device-scale-factor=1',
+  `--window-size=${WINDOW_W},${WINDOW_H}`,
+  `--user-data-dir=${CHROME_PROFILE_DIR}`,
+  '--no-first-run',
+  '--no-default-browser-check',
+  // Device Chromium runs with pinch disabled and no smooth scrolling; the
+  // panel is not color-managed, so pin sRGB to avoid wide-gamut Mac tint.
+  '--disable-pinch',
+  '--disable-smooth-scrolling',
+  '--force-color-profile=srgb',
+  // Lets the emulator server apply device-class CPU throttling over CDP.
+  `--remote-debugging-port=${CDP_PORT}`,
+];
+if (JS_HEAP_MB > 0) chromeArgs.push(`--js-flags=--max-old-space-size=${JS_HEAP_MB}`);
+
 try {
-  execFileSync('open', [
-    '-na', 'Google Chrome', '--args',
-    `--app=${EMULATOR_URL}`,
-    // 1 CSS pixel = 1 physical pixel, so the 800×480 panel is rendered at its
-    // true resolution instead of being supersampled by the display's HiDPI
-    // scale factor. Without this the emulated screen shows more detail and
-    // smoother edges than the real device ever can.
-    '--force-device-scale-factor=1',
-    `--window-size=${WINDOW_W},${WINDOW_H}`,
-    `--user-data-dir=${CHROME_PROFILE_DIR}`,
-    '--no-first-run',
-    '--no-default-browser-check',
-  ]);
+  if (process.env.EMU_CHROME_BIN) {
+    // Seam for experimenting with alternate binaries (e.g. an old Chromium).
+    spawn(process.env.EMU_CHROME_BIN, chromeArgs, { detached: true, stdio: 'ignore' }).unref();
+  } else {
+    execFileSync('open', ['-na', 'Google Chrome', '--args', ...chromeArgs]);
+  }
   console.log(`emulator window opened: ${EMULATOR_URL}`);
   console.log(`(${WINDOW_W}×${WINDOW_H} physical px, screen rendered 1:1 at the device's true 800×480)`);
+  console.log(`fidelity: cpu ${CPU_THROTTLE_RATE}x throttle, V8 heap ${JS_HEAP_MB || 'uncapped'}MB` +
+    ` (EMU_CPU_THROTTLE=0 / EMU_JS_HEAP_MB=0 to disable)`);
 } catch (err) {
   console.log(`could not launch Chrome (${err.message}); open ${EMULATOR_URL} manually`);
 }
