@@ -25,6 +25,10 @@ export function startHooksSource({ store, queue }) {
     // directory basename is only a fallback for a session we have never named.
     const registryName = known && known.name ? null : (lookupSession(id) || {}).name;
     const base = { cwd: cwd || undefined };
+    // The hook names the transcript's real path; remember it so the poller can
+    // recognize this session as a real conversation even when the cwd-derived
+    // path guess misses.
+    if (payload.transcript_path) base.transcriptPath = payload.transcript_path;
     if (!known || !known.name) {
       base.name = registryName || (cwd ? path.basename(cwd) : undefined);
     }

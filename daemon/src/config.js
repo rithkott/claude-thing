@@ -41,6 +41,17 @@ export const BUSY_WINDOW_MS = 10_000;    // activity within this = busy
 // time it takes to look up at the device. A minute is long enough to notice.
 export const CELEBRATE_MS = 60_000;      // celebrate decays to idle after this
 export const POLL_INTERVAL_MS = 3_000;   // claude agents --json poll
+// One listing is a claim, not a verdict. The registry is rewritten by every
+// claude process on the machine — including the daemon's own usage and poll
+// invocations — so a single read can catch it mid-write and come back empty or
+// partial. Retiring on one such read wiped the whole grid for a poll interval.
+// A session must be missing from this many consecutive good polls before it is
+// retired (cost: a genuinely-gone session lingers one extra interval)...
+export const RETIRE_AFTER_MISSED_POLLS = 2;
+// ...and a listing that claims *nothing at all* is alive while the store says
+// otherwise is suspect enough to ignore entirely this many times in a row
+// before its absences start counting.
+export const EMPTY_LISTING_GRACE_POLLS = 1;
 // The registry's "working" verdict is the only thing that stays true while the
 // model thinks and nothing is being written. Trust it for a few poll intervals
 // so one dropped poll doesn't blink a working session to idle.
