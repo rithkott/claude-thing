@@ -23,10 +23,13 @@ export const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(
 export const CLAUDE_SETTINGS = path.join(CLAUDE_DIR, 'settings.json');
 export const CLAUDE_PROJECTS_DIR = path.join(CLAUDE_DIR, 'projects');
 
-// Permission timing: daemon answers "ask" at HOLD_MS if nobody responded;
-// the installed hook timeout must exceed this (60s in install-hooks).
-export const PERMISSION_HOLD_MS = Number(process.env.CLAUDE_THING_HOLD_MS ?? 55_000);
-export const HOOK_TIMEOUT_S = 60;
+// Permission timing: daemon answers "ask" at HOLD_MS if nobody responded; the
+// installed hook timeout must exceed this, or Claude Code gives up first and
+// the device is answering into a closed connection. Ten minutes is long enough
+// to notice a prompt and walk over to the device; the session is genuinely
+// blocked for that whole time, which is the cost of a longer window.
+export const PERMISSION_HOLD_MS = Number(process.env.CLAUDE_THING_HOLD_MS ?? 595_000);
+export const HOOK_TIMEOUT_S = 600;
 
 // Snapshots are unbounded — the device grid scrolls sideways through however
 // many sessions exist. A client on a constrained transport can still ask for a

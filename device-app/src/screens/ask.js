@@ -27,6 +27,19 @@ function state_queuePos() {
 }
 
 function renderPermissionAsk(state, ask, choice) {
+  // Nothing on the device can answer this any more: the hook's response is
+  // spent, so allow/deny would write to a closed connection. Say where the
+  // decision went and offer only dismissal.
+  if (ask.expired) {
+    return '<div class="perm expired">' + head(ask, 'PERMISSION REQUEST') +
+      '<div class="tool">' + esc(ask.tool) + '</div>' +
+      '<div class="cmd">' + esc(ask.summary) + '</div>' +
+      '<div class="expnote">HOOK TIMED OUT — ANSWER IN TERMINAL</div>' +
+      '<div class="actions">' +
+      '<div class="pbtn dismiss selected" data-action="ask-skip">' +
+      '<span class="a">DISMISS</span><span class="h">back</span></div>' +
+      '</div></div>';
+  }
   return '<div class="perm">' + head(ask, 'PERMISSION REQUEST') +
     '<div class="tool">' + esc(ask.tool) + '</div>' +
     '<div class="cmd">' + esc(ask.summary) + '</div>' +

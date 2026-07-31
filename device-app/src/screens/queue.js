@@ -39,11 +39,11 @@ function summarize(a) {
   return a.tool + ': ' + a.summary;
 }
 
+// How long it has been waiting, not how long is left. A countdown turns a
+// prompt into a deadline you can lose, and the hold is now long enough that
+// the number was only ever a source of pressure.
 function waitLabel(a) {
+  if (a.expired) return 'IN TERMINAL';
   var secs = Math.max(0, Math.round((Date.now() - a.createdTs) / 1000));
-  if (a.timeoutMs) {
-    var left = Math.max(0, Math.round((a.createdTs + a.timeoutMs - Date.now()) / 1000));
-    return left + 's left';
-  }
   return secs < 60 ? secs + 's' : Math.round(secs / 60) + 'm';
 }

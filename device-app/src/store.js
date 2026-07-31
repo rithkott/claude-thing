@@ -54,6 +54,36 @@ export function pushAsk(ask) {
   update({});
 }
 
+// A timed-out permission is not answered — it has moved to the terminal. It
+// stays on the device saying so, because silently vanishing looks identical to
+// somebody else having answered it.
+export function expireAsk(id) {
+  for (var i = 0; i < state.asks.length; i++) {
+    if (state.asks[i].id === id) {
+      state.asks[i].expired = true;
+      state.asks[i].expiredTs = Date.now();
+      update({});
+      return true;
+    }
+  }
+  return false;
+}
+
+// Expired entries are notices, not work, so they age out on their own.
+export function sweepExpired(ttlMs) {
+  var cutoff = Date.now() - ttlMs;
+  var next = [];
+  for (var i = 0; i < state.asks.length; i++) {
+    var a = state.asks[i];
+    if (a.expired && a.expiredTs < cutoff) continue;
+    next.push(a);
+  }
+  if (next.length !== state.asks.length) {
+    var qi = Math.min(state.queueIndex, Math.max(0, next.length - 1));
+    update({ asks: next, queueIndex: qi });
+  }
+}
+
 export function resolveAsk(id) {
   var next = [];
   for (var i = 0; i < state.asks.length; i++) {

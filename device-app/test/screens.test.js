@@ -96,7 +96,8 @@ test('queue lists both kinds with their own accent and wait label', () => {
   assert.match(html, /PERMISSION/);
   assert.match(html, /QUESTION/);
   assert.match(html, /qrail question/, 'questions get their own rail colour');
-  assert.match(html, /s left/, 'permissions show their countdown');
+  assert.doesNotMatch(html, /left/, 'no countdown — a deadline you can lose is worse than none');
+  assert.match(html, /0s|\ds/, 'permissions show how long they have waited');
   assert.match(html, /\(2 options\)/);
 });
 
@@ -212,4 +213,28 @@ test('the connection dot reflects the daemon link on every screen', () => {
     assert.match(render(baseState({ daemonConnected: true })), /class="conn ok"/);
     assert.match(render(baseState({ daemonConnected: false })), /class="conn"/);
   }
+});
+
+test('a timed-out permission says where the decision went', () => {
+  setQueueContext(0, 1);
+  const ask = {
+    kind: 'permission', id: 'p', sessionName: 'proj', tool: 'Bash', summary: 'ls',
+    createdTs: Date.now() - 600_000, expired: true, expiredTs: Date.now(),
+  };
+  const html = renderAsk(baseState(), ask, 0);
+  assert.match(html, /HOOK TIMED OUT — ANSWER IN TERMINAL/);
+  // Allow/deny would write to a hook response that is already closed.
+  assert.doesNotMatch(html, /ALLOW/, 'no allow button once the hook has gone');
+  assert.doesNotMatch(html, /DENY/, 'no deny button either');
+  assert.match(html, /DISMISS/, 'the only thing left to do is clear it');
+});
+
+test('the queue marks an expired permission as living in the terminal', () => {
+  const html = renderQueue(baseState({
+    asks: [{
+      kind: 'permission', id: 'p1', sessionName: 'proj', tool: 'Bash', summary: 'ls',
+      createdTs: Date.now() - 600_000, expired: true, expiredTs: Date.now(),
+    }],
+  }));
+  assert.match(html, /IN TERMINAL/);
 });

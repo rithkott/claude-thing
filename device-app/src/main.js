@@ -60,9 +60,11 @@ function indexOfAsk(id) {
 
 window.addEventListener('hashchange', function () { askChoice = 0; render(); });
 store.subscribe(render);
+var EXPIRED_ASK_TTL_MS = 5 * 60 * 1000;
 setInterval(function () {
+  store.sweepExpired(EXPIRED_ASK_TTL_MS);
   var r = route();
-  // clock ticks and queue wait timers
+  // clock ticks and queue wait ages
   if (r.name === 'ambient' || r.name === 'list' || r.name === 'queue') render();
 }, 15000);
 
@@ -170,6 +172,9 @@ function openAsk(id) {
 function answerAsk(id, choice) {
   var ask = store.getAsk(id);
   if (!ask) return;
+  // The hook already answered "ask" and closed; a decision now has nowhere to
+  // go. Dismiss it rather than pretending the press did something.
+  if (ask.expired) return skipAsk(id);
 
   if (ask.kind === 'question') {
     var option = (ask.options || [])[choice];
@@ -263,9 +268,19 @@ ws.on('claude.question.request', function (q) {
 function onResolved(id, resolution) {
   var r = route();
   var wasCurrent = r.name === 'ask' && r.arg === id;
+  // A timeout is the one resolution nobody chose: the hook gave up and the
+  // question is now sitting in a terminal. Keep it on screen saying so instead
+  // of clearing it like an answered prompt.
+  if (resolution === 'timeout' && store.expireAsk(id)) {
+    if (wasCurrent) {
+      toast('HOOK TIMED OUT — ANSWER IN TERMINAL');
+      render();
+    }
+    return;
+  }
   store.resolveAsk(id);
   if (wasCurrent) {
-    toast(resolution === 'timeout' ? 'TIMED OUT — ANSWER IN TERMINAL' : String(resolution).toUpperCase());
+    toast(String(resolution).toUpperCase());
     nextAskOrBack();
   }
 }

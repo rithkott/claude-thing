@@ -413,6 +413,28 @@ body {
   color: var(--bone);
   word-break: break-all;
 }
+/* Expired: the hazard stripes and amber rail stop claiming urgency, because
+   there is nothing here to act on any more — only somewhere else to look. */
+.perm.expired .hazard {
+  opacity: 0.25;
+}
+.perm.expired .cmd {
+  border-left-color: var(--faint);
+  color: var(--faint);
+}
+.perm .expnote {
+  margin-top: 16px;
+  flex-shrink: 0;
+  padding: 14px 18px;
+  border-radius: 8px;
+  background: var(--panel);
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 700;
+  font-size: 19px;
+  letter-spacing: 0.1em;
+  color: var(--lamp-attn);
+  text-align: center;
+}
 .perm .actions {
   display: flex;
   flex-shrink: 0;
