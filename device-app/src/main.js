@@ -48,8 +48,26 @@ function render() {
     app.innerHTML = renderQueue(state) + renderAsk(state, ask, askChoice);
   } else {
     app.innerHTML = renderList(state);
+    marquee();
   }
   banner.className = state.daemonConnected ? 'banner' : 'banner show';
+}
+
+// Session names are measured against their tile after paint, so only the ones
+// that genuinely overflow scroll. Guessing from character count would either
+// animate names that fit or leave long ones clipped, and at 39px the line
+// between the two moves with every name.
+function marquee() {
+  var names = app.querySelectorAll('[data-marquee]');
+  for (var i = 0; i < names.length; i++) {
+    var el = names[i];
+    var over = el.scrollWidth - el.parentNode.clientWidth;
+    if (over <= 2) continue;
+    // Long names get proportionally longer to read, with a dwell at each end.
+    var ms = 7000 + Math.round(over * 26);
+    el.style.animation = 'marquee' + ' ' + ms + 'ms linear infinite';
+    el.style.setProperty('--shift', '-' + over + 'px');
+  }
 }
 
 function indexOfAsk(id) {
@@ -110,8 +128,13 @@ onAction('select', function () {
   if (r.name === 'ask') {
     answerAsk(r.arg, askChoice);
   } else if (r.name === 'queue') {
-    var a = state.asks[state.queueIndex];
-    if (a) openAsk(a.id);
+    // Triage without leaving the queue: a permission can be allowed in place,
+    // because allow/deny is the whole decision. A question can't — it needs its
+    // option list — so that one still opens the prompt.
+    var a = state.asks[Math.min(state.queueIndex, state.asks.length - 1)];
+    if (!a) return;
+    if (a.kind === 'permission' && !a.expired) answerFromQueue(a, 0);
+    else openAsk(a.id);
   } else if (r.name === 'list') {
     var s = state.sessions[state.selectedIndex];
     if (s) openSession(s.id);
@@ -133,11 +156,20 @@ onAction('page-sessions', function () { nav('#/list'); });
 onAction('page-queue', function () { nav('#/queue'); });
 onAction('page-usage', function () { nav('#/usage'); });
 
+// Preset 4 denies whatever is in front of you — the prompt screen's ask, or
+// the queue's hero.
 onAction('deny', function () {
   var r = route();
-  if (r.name !== 'ask') return;
-  var ask = store.getAsk(r.arg);
-  if (ask && ask.kind === 'permission') answerAsk(r.arg, 1);   // 1 = deny
+  if (r.name === 'ask') {
+    var ask = store.getAsk(r.arg);
+    if (ask && ask.kind === 'permission') answerAsk(r.arg, 1);   // 1 = deny
+    return;
+  }
+  if (r.name === 'queue') {
+    var state = store.get();
+    var hero = state.asks[Math.min(state.queueIndex, state.asks.length - 1)];
+    if (hero && hero.kind === 'permission' && !hero.expired) answerFromQueue(hero, 1);
+  }
 });
 
 onAction('ambient', function () {
@@ -145,10 +177,15 @@ onAction('ambient', function () {
 });
 
 onAction('tap', function (t) {
+  var state = store.get();
+  var hero = state.asks[Math.min(state.queueIndex, state.asks.length - 1)];
   if (t.action === 'open' && t.id) openSession(t.id);
   else if (t.action === 'open-ask' && t.id) openAsk(t.id);
   else if (t.action === 'ask-choice') answerAsk(route().arg, Number(t.id));
   else if (t.action === 'ask-skip') skipAsk(route().arg);
+  else if (t.action === 'queue-allow' && hero) answerFromQueue(hero, 0);
+  else if (t.action === 'queue-deny' && hero) answerFromQueue(hero, 1);
+  else if (t.action === 'queue-answer' && hero) openAsk(hero.id);
 });
 
 // ---- actions ---------------------------------------------------------------
@@ -192,6 +229,15 @@ function answerAsk(id, choice) {
       if (!res.accepted) toast('ALREADY ANSWERED');
     })
     .catch(function () { toast('SEND FAILED'); });
+}
+
+// Answering from the queue must leave you on the queue with the next ask
+// promoted into the hero — not fling you into the next item's prompt screen.
+// returnTo is what nextAskOrBack() checks to suppress that jump.
+function answerFromQueue(ask, choice) {
+  returnTo = '#/queue';
+  toast(choice === 0 ? 'ALLOW' : 'DENY');
+  answerAsk(ask.id, choice);
 }
 
 // A question can only be answered by typing into its terminal, so say exactly

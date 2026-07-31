@@ -98,9 +98,20 @@ test('summary stays small: name clamped, only the agreed fields', () => {
   const s = store.snapshot().sessions[0];
   assert.equal(s.name.length, 32);
   assert.deepEqual(Object.keys(s).sort(), [
-    'ended', 'id', 'lastActivityTs', 'name', 'pendingPermission', 'state', 'tokens',
+    'context', 'ended', 'id', 'lastActivityTs', 'name', 'pendingPermission', 'state', 'tokens',
   ]);
   assert.deepEqual(s.tokens, { in: 5, out: 7 });
+  assert.equal(s.context, null, 'no model, no window size, so no fraction');
+});
+
+test('context is a fraction of the model window, or null when unknowable', () => {
+  const store = createStore();
+  store.touch('a', { name: 'proj', model: 'claude-opus-5', contextTokens: 250_000 });
+  assert.equal(store.snapshot().sessions[0].context, 0.25);
+
+  store.touch('b', { name: 'proj', model: 'some-future-model', contextTokens: 250_000 });
+  assert.equal(store.snapshot().sessions.filter((x) => x.id === 'b')[0].context, null,
+    'an unknown model gets no meter rather than a meter against a guess');
 });
 
 test('detail carries the fields the device screen needs', () => {

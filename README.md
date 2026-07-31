@@ -26,10 +26,10 @@ the same events the physical buttons produce.
 
 | Button | Screen |
 |---|---|
-| **Preset 1** | **Sessions** — a two-row grid that scrolls sideways, unbounded. Each tile shows state, current activity, token counts, and an animated 8-bit Claude mascot acting out what the session is doing. Pressing a tile also raises that session's terminal window on the Mac. |
-| **Preset 2** | **Queue** — everything waiting on a human: tool permissions and Claude's multiple-choice questions, oldest first, with wait timers. |
+| **Preset 1** | **Sessions** — a two-row grid that scrolls sideways, unbounded. Each tile shows state, current activity, how full the context window is, and an animated 8-bit Claude mascot acting out what the session is doing. Pressing a tile also raises that session's terminal window on the Mac. |
+| **Preset 2** | **Queue** — everything waiting on a human. The one you'd answer next owns the screen and can be allowed or denied without leaving it; the rest stack underneath. |
 | **Preset 3** | **Usage** — the real `/usage` figures: session and weekly limits with reset times, plus what's driving them. |
-| **Preset 4** | Denies the permission currently on screen. |
+| **Preset 4** | Denies the permission on screen — on the prompt or on the queue. |
 | **Dial** | Turn to move, press to open or confirm. |
 | **Back** | Up a level; on a prompt, leaves it for the terminal. |
 | **M** | Ambient clock. |
@@ -139,7 +139,7 @@ entry for nocturne-ui's settings menu.
 ./scripts/test-all.sh --full   # also boots a daemon and runs the WS integration test
 ```
 
-60 unit assertions cover the usage parser, session state machine, permission
+84 unit assertions cover the usage parser, session state machine, permission
 bridge including its timeout path, the queue's focus/typing fallbacks, and every
 device screen. The integration test drives a real permission round trip.
 
@@ -152,17 +152,16 @@ supply a tool result — so answering one focuses that session's terminal and ty
 the option number. That needs Automation → System Events; if macOS denies it, the
 device focuses the window and tells you to press the key.
 
-**Nothing auto-denies.** If the daemon is down or nobody answers within 55
-seconds, the hook is released with "ask" and the terminal prompt takes over.
+**Nothing auto-denies.** If the daemon is down or nobody answers within ten
+minutes, the hook is released with "ask" and the terminal prompt takes over —
+the device says so rather than letting the prompt vanish.
 
 ## Status
 
-Verified end to end in the emulator against real Claude Code sessions, including
-a full permission round trip. Every piece builds and ships.
-
-**Unproven: the Bluetooth hop.** No `claude.*` request has crossed real hardware
-yet — the emulator stands in for that link. The first flash is where that gets
-answered.
+Working on real hardware. A flashed Car Thing pairs, the Nocturne relay carries
+`claude.*` over Bluetooth, and live sessions from this Mac render on the device —
+the cross-compiled `nocturned` and the Swift relay have both now been exercised
+outside the emulator.
 
 ## License
 

@@ -28,6 +28,9 @@ export function startMockSource({ store, permissionBridge, queue }) {
       model: 'claude-fable-5',
       tokensIn: 1200 * (i + 1),
       tokensOut: 800 * (i + 1),
+      // A spread of context fills, including one past the 80% mark, so the
+      // meter's neutral-until-it-matters behaviour is visible in mock mode.
+      contextTokens: Math.round([0.34, 0.62, 0.41, 0.88, 0.22, 0.55, 0.13, 0.71, 0.09][i % 9] * 1_000_000),
       lastMessage: 'Initialized mock session.',
       lastActivityTs: Date.now() - i * 60_000,
     });
@@ -43,6 +46,7 @@ export function startMockSource({ store, permissionBridge, queue }) {
       currentTool: tool,
       tokensIn: (store.raw(id).tokensIn || 0) + 300,
       tokensOut: (store.raw(id).tokensOut || 0) + 150,
+      contextTokens: Math.min(1_000_000, (store.raw(id).contextTokens || 0) + 9_000),
       lastMessage: `Running ${tool} (mock activity #${n})`,
       stoppedTs: null,
     });

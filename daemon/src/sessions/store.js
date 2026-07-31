@@ -6,6 +6,7 @@ import {
   SESSION_CAP, SNAPSHOT_DEBOUNCE_MS, BUSY_WINDOW_MS, CELEBRATE_MS, ENDED_TTL_MS,
   AGENT_ACTIVE_TTL_MS, THINKING_TTL_MS,
 } from '../config.js';
+import { contextFraction } from '../context-window.js';
 
 export function createStore() {
   const sessions = new Map(); // id -> internal record
@@ -41,6 +42,9 @@ export function createStore() {
       state: deriveState(s),
       lastActivityTs: s.lastActivityTs,
       tokens: { in: s.tokensIn || 0, out: s.tokensOut || 0 },
+      // 0..1 of the model's context window, or null when we can't know — the
+      // device draws no meter rather than a meter against a guess.
+      context: contextFraction(s.model, s.contextTokens),
       pendingPermission: !!s.pendingPermission,
       // idle means "nothing recently"; ended means the session is over. The
       // device labels them differently, so both have to travel.
@@ -51,6 +55,7 @@ export function createStore() {
   function detail(s) {
     return {
       ...summary(s),
+      contextTokens: s.contextTokens || 0,
       cacheRead: s.cacheRead || 0,
       cwd: s.cwd || '',
       model: s.model || '',

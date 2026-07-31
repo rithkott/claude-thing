@@ -21,6 +21,18 @@ const RUN_TIMEOUT_MS = 25_000;
 const LIMIT_RE = /^\s*Current\s+(session|week[^:]*):\s*(\d+)%\s*used(?:\s*·\s*resets\s+([^(\n]+?))?\s*(?:\(([^)]+)\))?\s*$/i;
 // "Last 24h · 579 requests · 8 sessions"
 const WINDOW_RE = /^\s*Last\s+(\S+)\s*·\s*([\d,]+)\s+requests\s*·\s*([\d,]+)\s+sessions\s*$/i;
+// "Top skills: /webapp-testing 4%, /frontend-design 1%"
+const TOP_RE = /^Top\s+(skills|subagents|MCP servers):\s*(.+)$/i;
+
+// Trailing percentage per item; anything that doesn't match that shape is kept
+// with an empty value rather than dropped, so an unparsed entry still shows.
+function parseTopList(rest) {
+  return String(rest).split(',').map((chunk) => {
+    const item = chunk.trim();
+    const m = /^(.*\S)\s+(\d+%)$/.exec(item);
+    return m ? { name: m[1], pct: m[2] } : { name: item, pct: '' };
+  }).filter((x) => x.name);
+}
 
 function labelFor(kind) {
   const k = kind.toLowerCase();
@@ -66,6 +78,9 @@ export function parseUsage(text, now = Date.now()) {
         requests: Number(win[2].replace(/,/g, '')),
         sessions: Number(win[3].replace(/,/g, '')),
         notes: [],
+        skills: [],
+        subagents: [],
+        mcp: [],
       };
       windows.push(current);
       continue;
@@ -73,7 +88,15 @@ export function parseUsage(text, now = Date.now()) {
 
     // indented bullets under a window: behaviours and top skills/subagents/MCP
     if (current && /^\s{2,}\S/.test(raw) && line.trim()) {
-      current.notes.push(line.trim());
+      const note = line.trim();
+      current.notes.push(note);
+      // "Top skills: /webapp-testing 4%, /deploy-to-dev 1%" is a table wearing
+      // a sentence. Split it here so the device renders rows, not prose.
+      const top = TOP_RE.exec(note);
+      if (top) {
+        const key = { skills: 'skills', subagents: 'subagents', 'mcp servers': 'mcp' }[top[1].toLowerCase()];
+        if (key) current[key] = parseTopList(top[2]);
+      }
     }
   }
 

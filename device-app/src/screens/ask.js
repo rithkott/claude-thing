@@ -1,7 +1,8 @@
 import { esc } from './helpers.js';
 
-// Fullscreen prompt view. Permissions keep the hazard-striped allow/deny/skip
-// layout; questions render Claude's own options as a dial-selectable list.
+// Fullscreen prompt view — the focused answer screen, opened from a session or
+// from the queue. Unlike the queue this one keeps a countdown, because here you
+// are acting against a live deadline rather than surveying what is waiting.
 export function renderAsk(state, ask, choice) {
   return ask.kind === 'question'
     ? renderQuestion(state, ask, choice)
@@ -9,12 +10,39 @@ export function renderAsk(state, ask, choice) {
 }
 
 function head(ask, label, klass) {
-  var queue = state_queuePos(ask);
-  return '<div class="hazard' + (klass || '') + '"></div>' +
+  var queue = state_queuePos();
+  return '<span class="hazard' + (klass || '') + '"></span>' +
+    countdown(ask) +
     '<div class="head"><span class="lamp attention"></span>' +
     '<span class="who">' + label + '</span>' +
+    remaining(ask) +
     (queue ? '<span class="queuen">' + queue + '</span>' : '') + '</div>' +
-    '<div class="session">' + esc(ask.sessionName || 'session') + '</div>';
+    '<div class="session">' + esc(ask.sessionName || 'session') +
+    (ask.kind === 'permission' && ask.tool
+      ? '<span class="stool">' + esc(ask.tool) + '</span>' : '') +
+    '</div>';
+}
+
+function fractionLeft(ask) {
+  if (!ask.timeoutMs || ask.expired) return null;
+  var left = ask.createdTs + ask.timeoutMs - Date.now();
+  return Math.max(0, Math.min(1, left / ask.timeoutMs));
+}
+
+function countdown(ask) {
+  var frac = fractionLeft(ask);
+  if (frac === null) return '';
+  var secs = Math.round((ask.createdTs + ask.timeoutMs - Date.now()) / 1000);
+  return '<div class="cdtrack"><span class="cdfill' + (secs <= 10 ? ' urgent' : '') +
+    '" style="width:' + (frac * 100).toFixed(1) + '%"></span></div>';
+}
+
+function remaining(ask) {
+  var frac = fractionLeft(ask);
+  if (frac === null) return '';
+  var secs = Math.max(0, Math.round((ask.createdTs + ask.timeoutMs - Date.now()) / 1000));
+  var text = secs >= 60 ? Math.round(secs / 60) + 'm left' : secs + 's left';
+  return '<span class="cdtime' + (secs <= 10 ? ' urgent' : '') + '">' + text + '</span>';
 }
 
 // filled in by renderAsk callers via setQueueContext
@@ -23,7 +51,7 @@ export function setQueueContext(index, total) {
   queueContext = { index: index, total: total };
 }
 function state_queuePos() {
-  return queueContext.total > 1 ? (queueContext.index + 1) + ' of ' + queueContext.total : '';
+  return queueContext.total > 1 ? (queueContext.index + 1) + ' / ' + queueContext.total : '';
 }
 
 function renderPermissionAsk(state, ask, choice) {
@@ -32,7 +60,6 @@ function renderPermissionAsk(state, ask, choice) {
   // decision went and offer only dismissal.
   if (ask.expired) {
     return '<div class="perm expired">' + head(ask, 'PERMISSION REQUEST') +
-      '<div class="tool">' + esc(ask.tool) + '</div>' +
       '<div class="cmd">' + esc(ask.summary) + '</div>' +
       '<div class="expnote">HOOK TIMED OUT — ANSWER IN TERMINAL</div>' +
       '<div class="actions">' +
@@ -41,7 +68,6 @@ function renderPermissionAsk(state, ask, choice) {
       '</div></div>';
   }
   return '<div class="perm">' + head(ask, 'PERMISSION REQUEST') +
-    '<div class="tool">' + esc(ask.tool) + '</div>' +
     '<div class="cmd">' + esc(ask.summary) + '</div>' +
     '<div class="actions">' +
     '<div class="pbtn allow' + (choice === 0 ? ' selected' : '') + '" data-action="ask-choice" data-id="0">' +
@@ -49,7 +75,7 @@ function renderPermissionAsk(state, ask, choice) {
     '<div class="pbtn deny' + (choice === 1 ? ' selected' : '') + '" data-action="ask-choice" data-id="1">' +
     '<span class="a">DENY</span><span class="h">preset 4</span></div>' +
     '<div class="pbtn dismiss' + (choice === 2 ? ' selected' : '') + '" data-action="ask-skip">' +
-    '<span class="a">SKIP</span><span class="h">back · answers in terminal</span></div>' +
+    '<span class="a">SKIP</span><span class="h">back</span></div>' +
     '</div></div>';
 }
 
@@ -79,6 +105,6 @@ function renderQuestion(state, ask, choice) {
   return '<div class="perm question">' + head(ask, esc(ask.header || 'QUESTION'), ' coral') +
     '<div class="qprompt">' + esc(ask.question) + '</div>' +
     '<div class="qopts">' + opts + '</div>' + more +
-    '<div class="qhint">press dial to answer · back to leave it for the terminal</div>' +
+    '<div class="qhint">dial answers · back leaves it</div>' +
     '</div>';
 }

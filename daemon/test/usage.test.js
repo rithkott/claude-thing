@@ -71,3 +71,23 @@ test('survives a limit line with no reset clause', () => {
   assert.equal(u.limits[0].used, 0.05);
   assert.equal(u.limits[0].detail, '');
 });
+
+test('top-skills prose is parsed into rows the device can tabulate', () => {
+  const out = parseUsage([
+    'Current session: 27% used · resets Jul 31 at 2am (America/New_York)',
+    'Last 24h · 775 requests · 4 sessions',
+    '  94% of your usage was at >150k context',
+    '  Top skills: /webapp-testing 4%, /deploy-to-dev 1%',
+    '  Top subagents: Explore 7%, Plan 3%',
+    '  Top MCP servers: claude-in-chrome 4%',
+  ].join('\n'));
+  const w = out.windows[0];
+  assert.deepEqual(w.skills, [
+    { name: '/webapp-testing', pct: '4%' },
+    { name: '/deploy-to-dev', pct: '1%' },
+  ]);
+  assert.deepEqual(w.subagents, [{ name: 'Explore', pct: '7%' }, { name: 'Plan', pct: '3%' }]);
+  assert.deepEqual(w.mcp, [{ name: 'claude-in-chrome', pct: '4%' }]);
+  // the raw bullets survive, so a behaviour line is never lost to parsing
+  assert.ok(w.notes.some((n) => /150k context/.test(n)));
+});

@@ -15,6 +15,15 @@ export function startTranscriptTail({ store, sessionId, transcriptPath }) {
     const usage = msg.usage || obj.usage;
     if (usage) {
       const raw = store.raw(sessionId) || {};
+      // What a turn sent is what the window currently holds, so the newest
+      // turn's prompt size *is* the context occupancy — an overwrite, not a
+      // sum. The lifetime counters below are the opposite arithmetic on the
+      // same numbers.
+      store.upsert(sessionId, {
+        contextTokens: (usage.input_tokens || 0) +
+          (usage.cache_read_input_tokens || 0) +
+          (usage.cache_creation_input_tokens || 0),
+      });
       // Cache reads are counted separately: summing them across every turn
       // reaches tens of millions and drowns out the real numbers.
       store.upsert(sessionId, {

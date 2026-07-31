@@ -31,9 +31,10 @@ export function stateLabel(state, ended) {
   return { busy: 'WORKING', attention: 'ATTENTION', celebrate: 'DONE' }[state] || 'IDLE';
 }
 
-export function topbar(title, connected) {
+export function topbar(title, connected, count) {
   return '<div class="topbar"><span class="mark"></span>' +
     '<span class="title">' + esc(title) + '</span>' +
+    (count ? '<span class="tcount">' + esc(count) + '</span>' : '') +
     '<span class="spacer"></span>' +
     '<span class="clock">' + fmtClock() + '</span>' +
     '<span class="conn' + (connected ? ' ok' : '') + '"></span></div>';

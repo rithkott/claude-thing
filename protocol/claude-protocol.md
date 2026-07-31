@@ -72,6 +72,9 @@ SessionSummary = {
   tokens: { in: number, out: number },
   pendingPermission: boolean,
   ended: boolean,       // idle-and-over vs idle-and-quiet
+  context: number|null, // 0..1 of the model's context window; null when the
+                        // model is unknown, so the device draws no meter
+                        // rather than a meter against a guess
 }
 // ~150 B each, unbounded count — the device grid scrolls sideways through
 // them. Over Bluetooth an async event snapshot spans multiple chunks, which the
@@ -80,6 +83,7 @@ SessionSummary = {
 // stream for the full set.
 
 SessionDetail = SessionSummary & {
+  contextTokens: number, // what the newest turn sent — the raw numerator
   cwd: string,
   model: string,
   startedTs: number,
@@ -98,7 +102,15 @@ Ask =
 Usage = {
   updatedTs, updatedLabel, subscription?, stale?, error?,
   limits: [{ key, label, used /* 0..1 */, detail /* "resets Jul 30 at 5:19am" */ }],
-  windows: [{ window /* "Last 24h" */, requests, sessions, notes: [string] }],
+  windows: [{
+    window /* "Last 24h" */, requests, sessions,
+    notes: [string],                        // every bullet, verbatim
+    // "Top skills: /x 4%, /y 1%" is a table wearing a sentence; split so the
+    // device renders rows. Empty when that bullet is absent.
+    skills:    [{ name, pct }],
+    subagents: [{ name, pct }],
+    mcp:       [{ name, pct }],
+  }],
 }
 ```
 

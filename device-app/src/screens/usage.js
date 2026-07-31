@@ -1,7 +1,9 @@
 import { esc, topbar } from './helpers.js';
 
 // The real /usage figures: plan-limit percentages with reset times, plus the
-// "what's contributing" breakdown. The mascot's mood tracks the fullest bar.
+// "what's contributing" breakdown. Each bar carries its own mascot driven by
+// that bar's own fill, so the limits read as independent gauges rather than one
+// verdict — being out of weekly Fable says nothing about your session limit.
 export function renderUsage(state) {
   var u = state.usage;
   var bar = topbar('USAGE', state.daemonConnected);
@@ -15,59 +17,62 @@ export function renderUsage(state) {
   for (var i = 0; i < u.limits.length; i++) {
     var l = u.limits[i];
     var pct = Math.max(0, Math.min(1, l.used || 0));
+    var m = mood(pct);
     rows +=
       '<div class="ubar">' +
+      '<div class="ubarmain">' +
       '<div class="uhead"><span class="ulabel">' + esc(l.label) + '</span>' +
       '<span class="ureset">' + esc(l.detail || '') + '</span>' +
       '<span class="upct">' + Math.round(pct * 100) + '%</span></div>' +
-      '<div class="utrack"><span class="ufill ' + level(pct) + '" style="width:' +
+      '<div class="utrack"><span class="ufill ' + m + '" style="width:' +
       (pct * 100).toFixed(1) + '%"></span></div>' +
+      '</div>' +
+      '<span class="usprite ' + m + '"></span>' +
+      '<span class="uphrase ' + m + '">' + moodLabel(pct) + '</span>' +
       '</div>';
   }
 
-  var worst = 0;
-  for (var j = 0; j < u.limits.length; j++) worst = Math.max(worst, u.limits[j].used || 0);
-
-  // the most recent window's headline numbers and its top contributors
-  var w = (u.windows || [])[0];
-  var notes = '';
-  if (w) {
-    var items = (w.notes || []).slice(0, 3);
-    var lines = '';
-    for (var k = 0; k < items.length; k++) {
-      lines += '<div class="unote">' + esc(items[k]) + '</div>';
-    }
-    notes = '<div class="ucontrib">' +
-      '<div class="uwin">' + esc(w.window) + ' · ' + w.requests + ' requests · ' +
-      w.sessions + ' sessions</div>' + lines + '</div>';
-  }
-
   return '<div class="screen">' + bar +
-    '<div class="usage">' +
-    '<div class="ubars">' + rows + notes + '</div>' +
-    '<div class="umascot"><span class="usprite ' + mood(worst) + '"></span>' +
-    '<span class="umood">' + moodLabel(worst) + '</span></div>' +
-    '</div>' +
+    '<div class="usage">' + rows + tables(u) + '</div>' +
     '<div class="ufoot">' + esc(u.updatedLabel || '') + (u.stale ? ' · stale' : '') + '</div>' +
     '</div>';
 }
 
-function level(pct) {
-  if (pct >= 0.9) return 'hot';
-  if (pct >= 0.6) return 'warm';
-  return 'cool';
+// Below the divider: what the window actually was, then the two contributor
+// tables side by side.
+function tables(u) {
+  var w = (u.windows || [])[0];
+  if (!w) return '';
+  var win = esc(w.window) + ' · ' + w.requests + ' requests · ' + w.sessions + ' sessions';
+  return '<div class="ubreak">' +
+    '<div class="uwin">' + win + '</div>' +
+    '<div class="utables">' +
+    table('SKILLS', w.skills || []) +
+    table('SUBAGENTS', w.subagents || []) +
+    '</div></div>';
 }
 
+function table(title, rows) {
+  var body = '';
+  for (var i = 0; i < rows.length && i < 3; i++) {
+    body += '<div class="utrow"><span class="utname">' + esc(rows[i].name) + '</span>' +
+      '<span class="utval">' + esc(rows[i].pct) + '</span></div>';
+  }
+  if (!body) body = '<div class="utrow"><span class="utname">—</span></div>';
+  return '<div class="utable"><div class="uthead"><span class="uttitle">' + title + '</span>' +
+    '<span class="utunit">% of usage</span></div>' + body + '</div>';
+}
+
+// Under 80% clear, 80–99% sweating, 100% fainted. The thresholds are the
+// design's; the sprite and the fill colour always agree.
 function mood(pct) {
-  if (pct >= 0.9) return 'mood-max';
-  if (pct >= 0.75) return 'mood-hot';
-  if (pct >= 0.4) return 'mood-warm';
-  return 'mood-calm';
+  if (pct >= 1) return 'mood-out';
+  if (pct >= 0.8) return 'mood-low';
+  return 'mood-clear';
 }
 
 function moodLabel(pct) {
-  if (pct >= 0.9) return 'AT THE LIMIT';
-  if (pct >= 0.75) return 'EASE OFF';
-  if (pct >= 0.4) return 'PLENTY LEFT';
+  if (pct >= 1) return 'OUT OF USAGE';
+  if (pct >= 0.8) return 'RUNNING OUT';
   return 'ALL CLEAR';
 }
