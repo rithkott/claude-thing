@@ -33,7 +33,14 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-BUILD_DIR="${REPO_ROOT}/build/connector"
+# Built outside the repo on purpose. A repo under ~/Desktop or ~/Documents is
+# typically an iCloud-synced folder, and the sync daemon stamps
+# com.apple.fileprovider / com.apple.FinderInfo onto files as they are written.
+# Those attributes land on the .app mid-build and codesign refuses it with
+# "resource fork, Finder information, or similar detritus not allowed" — a
+# failure that has nothing to do with the code. Override with
+# CLAUDE_THING_BUILD_DIR if you want it somewhere specific.
+BUILD_DIR="${CLAUDE_THING_BUILD_DIR:-${TMPDIR:-/tmp}claude-thing-connector}"
 DIST_DIR="${REPO_ROOT}/dist"
 RELAY_SRC="${REPO_ROOT}/patches/swift/ClaudeRelayService.swift"
 
@@ -49,12 +56,18 @@ if [ "$KEEP" -eq 0 ] || [ ! -d "$BUILD_DIR" ]; then
   if [ -n "$CONNECTOR_SRC" ]; then
     [ -d "$CONNECTOR_SRC" ] || fail "no connector checkout at ${CONNECTOR_SRC}"
     echo ">> copying ${CONNECTOR_SRC}"
-    cp -R "$CONNECTOR_SRC" "$BUILD_DIR"
+    # -X drops extended attributes. Copying them in makes codesign fail the
+    # build with "resource fork, Finder information, or similar detritus not
+    # allowed", because they ride along into the built .app.
+    cp -RX "$CONNECTOR_SRC" "$BUILD_DIR"
     rm -rf "${BUILD_DIR}/.git" "${BUILD_DIR}/build" "${BUILD_DIR}/output" "${BUILD_DIR}/cache"
   else
     echo ">> cloning usenocturne/nocturne-connector"
     git clone --depth 1 https://github.com/usenocturne/nocturne-connector.git "$BUILD_DIR"
   fi
+  # Belt and braces: a clone can still pick up quarantine/provenance attributes
+  # depending on how the machine is configured.
+  xattr -cr "$BUILD_DIR" 2>/dev/null || true
 fi
 
 APP="${BUILD_DIR}/macos/Nocturne"
