@@ -1,5 +1,7 @@
 // App state: session snapshot, detail cache, permission queue, daemon link.
 
+import { setTzOffset } from './screens/helpers.js';
+
 var state = {
   sessions: [],
   stats: { active: 0, attention: 0 },
@@ -27,6 +29,7 @@ export function update(fields) {
 }
 
 export function applySnapshot(snap) {
+  setTzOffset(snap.tzOffsetMin);
   var sel = state.sessions[state.selectedIndex];
   var fields = { sessions: snap.sessions || [], stats: snap.stats || state.stats };
   if (sel) {

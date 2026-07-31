@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { esc, fmtTokens, fmtDuration, stateLabel } from '../src/screens/helpers.js';
+import { esc, fmtTokens, fmtDuration, fmtClock, setTzOffset, stateLabel } from '../src/screens/helpers.js';
 import { renderList } from '../src/screens/session-list.js';
 import { renderQueue } from '../src/screens/queue.js';
 import { renderUsage } from '../src/screens/usage.js';
@@ -35,6 +35,17 @@ test('token counts are humanised', () => {
   assert.equal(fmtTokens(999), '999');
   assert.equal(fmtTokens(1500), '2k');
   assert.equal(fmtTokens(2_400_000), '2.4M');
+});
+
+test('clock renders daemon-local time from the snapshot offset, UTC-clock proof', () => {
+  const t = new Date(Date.UTC(2026, 6, 31, 18, 5));   // 18:05 UTC
+  setTzOffset(240);                                    // EDT: UTC-4
+  assert.equal(fmtClock(t), '2:05 PM');
+  setTzOffset(-330);                                   // IST: UTC+5:30
+  assert.equal(fmtClock(t), '11:35 PM');
+  setTzOffset(undefined);                              // old daemon: fall back to local
+  const local = new Date(2026, 6, 31, 9, 7);
+  assert.equal(fmtClock(local), '9:07 AM');
 });
 
 test('durations read as h/m', () => {
