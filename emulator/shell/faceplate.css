@@ -1,5 +1,12 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* True-to-hardware scale: the 3.97" 800×480 panel is 86.4mm wide, so
+   1mm = 800/86.4 = 9.259px. Every physical dimension below derives from the
+   real device: face 124×64mm, dial ⌀48mm overlapping the screen's right edge
+   (physics — 86.4mm panel + 48mm dial > 124mm face — and how the real unit
+   looks; the stock UI keeps critical content away from the far right). */
+:root { --mm: 9.259px; }
+
 body {
   background: #17181c;
   min-height: 100vh;
@@ -18,26 +25,27 @@ body {
   gap: 14px;
 }
 
-/* ---- device body ---- */
+/* ---- device body: 124×64mm ---- */
 
 .device {
   position: relative;
+  width: calc(124 * var(--mm));   /* 1148px */
+  height: calc(64 * var(--mm));   /* 593px */
   background: linear-gradient(160deg, #2c2d31 0%, #232427 55%, #1c1d20 100%);
-  border-radius: 34px;
-  padding: 26px 30px 30px 30px;
+  border-radius: 40px;
   box-shadow:
     0 24px 70px rgba(0, 0, 0, 0.65),
     inset 0 1px 0 rgba(255, 255, 255, 0.07),
     inset 0 -2px 6px rgba(0, 0, 0, 0.5);
 }
 
-/* ---- top edge buttons ---- */
+/* ---- top edge buttons (over the screen region, as on hardware) ---- */
 
 .top-edge {
   position: absolute;
   top: -14px;
-  left: 70px;
-  right: 220px;
+  left: 80px;
+  right: 420px;
   display: flex;
   gap: 26px;
   align-items: flex-end;
@@ -56,13 +64,13 @@ body {
 
 .top-edge .preset {
   flex: 1;
-  height: 18px;
-  max-width: 130px;
+  height: 20px;
+  max-width: 150px;
 }
 
 .top-edge .settings {
-  width: 44px;
-  height: 16px;
+  width: 56px;
+  height: 18px;
   margin-left: 18px;
   border-radius: 8px 8px 3px 3px;
 }
@@ -73,19 +81,16 @@ body {
   background: linear-gradient(180deg, #2b2c30, #202126);
 }
 
-/* ---- face: screen + right column ---- */
-
-.face {
-  display: flex;
-  align-items: center;
-  gap: 26px;
-}
+/* ---- screen: 86.4×51.8mm active area, vertically centered ---- */
 
 .screen-bezel {
-  position: relative;
+  position: absolute;
+  left: 30px;
+  top: 46px;
   background: #000;
   border-radius: 18px;
   padding: 10px;
+  z-index: 1;
   box-shadow:
     inset 0 0 0 2px #0a0a0b,
     inset 0 2px 10px rgba(0, 0, 0, 0.9);
@@ -121,51 +126,64 @@ body {
   letter-spacing: 0.04em;
 }
 
-/* ---- dial + back ---- */
+/* ---- dial: ⌀48mm, overlaps the screen's right edge like the real unit ---- */
 
-.right-col {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 22px;
+/* Drop shadow lives on its own layer: clip-path on .dial would clip the
+   shadow away, and the shadow layer must not eat clicks. */
+.dial-shadow {
+  position: absolute;
+  left: calc(73.1 * var(--mm));   /* 677px */
+  top: calc(8 * var(--mm));       /* 74px — vertically centered */
+  width: calc(48 * var(--mm));    /* 445px */
+  height: calc(48 * var(--mm));
+  border-radius: 50%;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.65);
+  z-index: 2;
+  pointer-events: none;
 }
 
 .dial {
-  width: 168px;
-  height: 168px;
+  position: absolute;
+  left: calc(73.1 * var(--mm));
+  top: calc(8 * var(--mm));
+  width: calc(48 * var(--mm));
+  height: calc(48 * var(--mm));
   border-radius: 50%;
+  /* Chrome hit-tests against clip-path: clicks in the square corners fall
+     through to the screen underneath. */
+  clip-path: circle(50%);
   background: radial-gradient(circle at 35% 30%, #3f4046, #232428 70%);
   box-shadow:
-    0 10px 26px rgba(0, 0, 0, 0.6),
     inset 0 2px 3px rgba(255, 255, 255, 0.1),
-    inset 0 -4px 10px rgba(0, 0, 0, 0.55);
+    inset 0 -6px 16px rgba(0, 0, 0, 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: grab;
   touch-action: none;
+  z-index: 3;
 }
 
 .dial:active { cursor: grabbing; }
 
 .dial-knob {
-  width: 138px;
-  height: 138px;
+  width: calc(43 * var(--mm));    /* 398px */
+  height: calc(43 * var(--mm));
   border-radius: 50%;
   position: relative;
   background:
     radial-gradient(circle at 40% 32%, #4a4b52, #2b2c31 75%);
   box-shadow:
     inset 0 1px 2px rgba(255, 255, 255, 0.14),
-    inset 0 -3px 8px rgba(0, 0, 0, 0.5),
-    0 3px 10px rgba(0, 0, 0, 0.5);
+    inset 0 -6px 18px rgba(0, 0, 0, 0.5),
+    0 6px 20px rgba(0, 0, 0, 0.5);
   transition: box-shadow 80ms ease;
 }
 
 .dial.pressed .dial-knob {
   box-shadow:
-    inset 0 2px 8px rgba(0, 0, 0, 0.7),
-    0 1px 3px rgba(0, 0, 0, 0.4);
+    inset 0 4px 16px rgba(0, 0, 0, 0.7),
+    0 2px 6px rgba(0, 0, 0, 0.4);
 }
 
 .dial-ridges {
@@ -173,8 +191,8 @@ body {
   top: 0; right: 0; bottom: 0; left: 0;
   border-radius: 50%;
   background: repeating-conic-gradient(
-    rgba(255, 255, 255, 0.045) 0deg 3deg,
-    transparent 3deg 9deg
+    rgba(255, 255, 255, 0.045) 0deg 2deg,
+    transparent 2deg 6deg
   );
   -webkit-mask: radial-gradient(circle, transparent 58%, black 62%);
   mask: radial-gradient(circle, transparent 58%, black 62%);
@@ -182,18 +200,23 @@ body {
 
 .dial-dot {
   position: absolute;
-  top: 12px;
+  top: 28px;
   left: 50%;
-  width: 7px;
-  height: 7px;
-  margin-left: -3.5px;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
   border-radius: 50%;
   background: #63656d;
 }
 
+/* ---- back button: small circle at the lower right, below the dial edge ---- */
+
 .back-btn {
-  width: 46px;
-  height: 46px;
+  position: absolute;
+  left: calc(112.5 * var(--mm));  /* 1042px */
+  top: calc(55.5 * var(--mm));    /* 514px */
+  width: calc(7 * var(--mm));     /* 65px */
+  height: calc(7 * var(--mm));
   border: none;
   border-radius: 50%;
   cursor: pointer;
@@ -203,6 +226,7 @@ body {
     inset 0 1px 1px rgba(255, 255, 255, 0.12),
     inset 0 -2px 5px rgba(0, 0, 0, 0.5);
   transition: transform 60ms ease;
+  z-index: 4;
 }
 
 .back-btn:active,

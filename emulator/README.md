@@ -15,6 +15,31 @@ The emulator reproduces the device runtime exactly:
   `wheel` with `deltaX`, dial press = `Enter`, back = `Escape`, presets =
   `1`–`4` / `Digit1`–`Digit4`, settings = `m`/`KeyM`. Long-presses work because
   buttons send keydown on press and keyup on release, like real keys.
+- **Legacy JS chunks**: the served HTML is rewritten so the Vite
+  `@vitejs/plugin-legacy` (chrome69/SystemJS) bundles execute — the exact code
+  path the device's Chromium 69 runs — instead of the modern module build.
+- **Device-class resources**: Chrome's V8 heap is capped and the renderer is
+  CPU-throttled over the DevTools protocol to approximate 4× Cortex-A53
+  @1.8GHz with 512MB shared RAM.
+- **40ms button polling**: hardware buttons go through the kernel's
+  `gpio-keys-polled` driver at 40ms — press/release timing is quantized and a
+  tap shorter than one poll window is dropped. The faceplate samples its
+  buttons the same way. (The rotary encoder is event-driven on hardware and is
+  deliberately *not* quantized.)
+- **Device fonts**: Inter / Circular Sp / Noto are pulled out of the rootfs
+  (`/usr/share/fonts`) and served via `@font-face`, so text renders with the
+  device families instead of macOS fallbacks.
+
+## Faceplate geometry
+
+Everything is drawn at true physical scale: the 3.97" 800×480 panel is 86.4mm
+wide → **9.259 px/mm** (`--mm` in `shell/faceplate.css`, mirrored by
+`FACE_W/H` in `src/config.js`). Device face 124×64mm → 1148×593px; dial ⌀48mm
+→ ⌀445px. The dial **overlaps the screen's right edge by ~163px — on purpose**:
+an 86.4mm panel plus a 48mm dial cannot fit side-by-side on a 124mm face, and
+the real unit looks exactly like this (the stock UI keeps critical content away
+from the far right). Do not "fix" the overlap. Clicks in the dial's square
+corners fall through to the screen (`clip-path` hit-testing).
 
 ## Usage
 
@@ -24,8 +49,8 @@ node scripts/deploy-dev.js     # or: npm run deploy   (or tell Claude "deploy to
 
 Finds the newest `nocturne*.zip` containing a `system_*.ext2` rootfs in
 `<project>/firmware/`, `~/Desktop`, `~/Downloads` → extracts `/etc/nocturne/ui`
-via debugfs (cached per zip+mtime) → restarts the server → opens a Chrome
-app-mode window.
+(and `/usr/share/fonts`) via debugfs (cached per zip+mtime) → restarts the
+server → opens a Chrome app-mode window.
 
 Requirements: Node ≥18, `unzip`, `zipinfo`, and e2fsprogs
 (`brew install e2fsprogs`).
@@ -34,9 +59,22 @@ Controls: click everything on the faceplate; keyboard `1–4`, `M`, `Enter`,
 `Escape`, and `←`/`→` for the dial. Drag or scroll the knob to turn it; click
 it to press; hold to long-press.
 
-Env flags: `SIM_PHONE=0` (no simulated phone — UI sits in onboarding/pairing
-like phoneless hardware), `SPOTIFY_SKIPPED=0` (report Spotify as authenticated
-instead of skipped).
+### Env flags
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `EMU_CPU_THROTTLE` | `8` | CDP CPU throttle factor (≈ one A53 @1.8GHz vs an Apple Silicon core). **`0` to disable for fast dev iteration** |
+| `EMU_JS_HEAP_MB` | `200` | `--max-old-space-size` V8 heap cap (device: 512MB total, shared). `0` = uncapped |
+| `EMU_INPUT_POLL_MS` | `40` | gpio-keys-polled quantization for buttons. `0` = instant dispatch |
+| `EMU_FORCE_LEGACY` | on | `0` = serve the modern module chunks instead of the chrome69 legacy path |
+| `EMU_DEVICE_FONTS` | on | `0` = macOS font fallbacks |
+| `EMU_CDP_PORT` | `9223` | Chrome remote-debugging port used for throttling |
+| `EMU_CHROME_BIN` | — | Alternate browser binary (e.g. an old Chromium build) launched with the same flags |
+| `SIM_PHONE` | on | `0` = no simulated phone — UI sits in onboarding/pairing like phoneless hardware |
+| `SPOTIFY_SKIPPED` | on | `0` = report Spotify as authenticated instead of skipped |
+
+The status strip under the faceplate shows the active fidelity settings
+(`cpu 8x · heap 200MB · keys 40ms · legacy js · device fonts`).
 
 Other commands: `npm run check` (extraction only), `npm run start` (server in
 foreground), `npm run smoke` (WS protocol semantics test; server must be up).
@@ -45,16 +83,23 @@ Logs: `logs/server.log`, `logs/ws.log` (every WS frame both directions).
 
 ## Known limitations
 
-- Desktop Chrome executes the firmware's *modern* JS chunks; the device's
-  Chrome 69 runs the *legacy* chunks. The emulator proves logic/UX, not
-  Chrome-69 syntax compatibility — keep a hardware smoke test before releases.
+- The JS *code path* matches the device (legacy chunks), but the engine is
+  still modern Chrome — new DOM/CSS APIs the device lacks would not throw
+  here. Keep a hardware smoke test before releases. (A real Chromium 69 binary
+  can be tried via `EMU_CHROME_BIN`, but 2018 builds rarely launch on current
+  macOS.)
+- The CPU throttle is duty-cycle based and the heap cap covers V8 old space
+  only (not DOM/GPU/image memory) — approximations, not cycle-accurate
+  emulation. No Mali-G31, thermal, or eMMC/swap-pressure model.
+- ProMotion Macs run `requestAnimationFrame` at up to 120Hz vs the panel's
+  fixed 60.02Hz.
 - `spotify.*` beyond auth status is not emulated; music screens dead-end with
   the connector's verbatim `Unknown method` error. The UI runs in
   Spotify-skipped mode, matching a real device without Spotify auth.
 - Synthetic events carry `isTrusted:false` (the firmware never checks).
 - Mouse drags on the screen are mouse events, not touch — swipe-gesture code
   paths need DevTools touch emulation.
-- Fonts fall back to macOS system fonts (device fonts live in the Buildroot
-  image, not the webapp).
+- The claude app's `Chakra Petch`/`JetBrains Mono` aren't in the rootfs either;
+  their fallback differs between macOS and device fontconfig.
 - macOS AirPlay Receiver also listens on `*:5000`; the emulator binds
   `127.0.0.1`/`::1` specifically, which coexists and wins for localhost.

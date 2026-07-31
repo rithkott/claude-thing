@@ -4,6 +4,7 @@ import { HOST, HTTP_PORT, WS_PORT, PID_FILE, CACHE_DIR, SIM_PHONE } from './conf
 import { resolveFirmware } from './firmware.js';
 import { startHttpServer } from './static-server.js';
 import { startWsServer } from './ws-server.js';
+import { startCdpThrottle } from './cdp.js';
 import { logInfo } from './log.js';
 
 const firmware = resolveFirmware();
@@ -22,6 +23,8 @@ try {
 
 fs.mkdirSync(CACHE_DIR, { recursive: true });
 fs.writeFileSync(PID_FILE, String(process.pid));
+
+startCdpThrottle();
 
 logInfo(`http: http://${HOST}:${HTTP_PORT}/  (shell at /__emulator__/)`);
 logInfo(`ws:   ws://${HOST}:${WS_PORT}`);

@@ -12,16 +12,26 @@ const iframe = document.getElementById('screen');
 
 let cfg = {
   dial: { tickDelta: 90, minTickMs: 20, degPerTick: 15, scrollPerTick: 50 },
+  fidelity: { inputPollMs: 40 },
 };
 
 fetch('/__emulator__/config.json')
   .then((r) => r.json())
   .then((c) => {
     cfg = c;
+    startKeyPoller();
     document.getElementById('st-version').textContent =
       `firmware: ${(c.version && (c.version.shortVersion || c.version.version)) || 'unknown'}` +
       (c.simPhone ? '' : '  (phone sim OFF)');
     document.getElementById('st-zip').textContent = c.zip || '';
+    const f = c.fidelity || {};
+    document.getElementById('st-fidelity').textContent = [
+      f.cpuThrottle > 1 ? `cpu ${f.cpuThrottle}x` : 'cpu unthrottled',
+      f.jsHeapMb > 0 ? `heap ${f.jsHeapMb}MB` : null,
+      f.inputPollMs > 0 ? `keys ${f.inputPollMs}ms` : null,
+      f.forceLegacy ? 'legacy js' : 'modern js',
+      f.deviceFonts ? 'device fonts' : null,
+    ].filter(Boolean).join(' · ');
   })
   .catch(() => {});
 
@@ -47,6 +57,49 @@ function sendWheel(deltaX) {
   }));
 }
 
+// ---- gpio-keys-polled emulation ------------------------------------------
+// On hardware the seven buttons (presets, settings, back, dial press) go
+// through the kernel's gpio-keys-polled driver at 40ms: the electrical state
+// is *sampled*, not queued, so a tap shorter than one poll window is silently
+// dropped and press/release timing is quantized. The rotary encoder is
+// evdev/libinput — event-driven, never quantized. Visual .pressed feedback
+// stays instant (the physical button moves instantly too); only the reported
+// key events are quantized.
+
+const physicalKeys = new Map(); // code -> {key, down}
+const reportedKeys = new Set();
+let keyPollTimer = null;
+
+function setKey(code, key, down) {
+  const pollMs = (cfg.fidelity && cfg.fidelity.inputPollMs) || 0;
+  if (pollMs <= 0) {
+    sendKey(down ? 'keydown' : 'keyup', key, code);
+    return;
+  }
+  physicalKeys.set(code, { key, down });
+}
+
+function pollKeys() {
+  for (const [code, st] of physicalKeys) {
+    const rep = reportedKeys.has(code);
+    if (st.down && !rep) {
+      reportedKeys.add(code);
+      sendKey('keydown', st.key, code);
+    } else if (!st.down && rep) {
+      reportedKeys.delete(code);
+      sendKey('keyup', st.key, code);
+    }
+  }
+}
+
+function startKeyPoller() {
+  if (keyPollTimer) clearInterval(keyPollTimer);
+  keyPollTimer = null;
+  const pollMs = (cfg.fidelity && cfg.fidelity.inputPollMs) || 0;
+  if (pollMs > 0) keyPollTimer = setInterval(pollKeys, pollMs);
+}
+startKeyPoller();
+
 // ---- physical-style buttons (keydown on press, keyup on release) --------
 
 function wireButton(el, key, code) {
@@ -56,13 +109,13 @@ function wireButton(el, key, code) {
     if (down) return;
     down = true;
     el.classList.add('pressed');
-    sendKey('keydown', key, code);
+    setKey(code, key, true);
   };
   const release = () => {
     if (!down) return;
     down = false;
     el.classList.remove('pressed');
-    sendKey('keyup', key, code);
+    setKey(code, key, false);
   };
   el.addEventListener('mousedown', press);
   el.addEventListener('touchstart', press, { passive: false });
@@ -143,11 +196,12 @@ function dragEnd() {
   if (!dragging) return;
   dragging = false;
   if (!dragMoved) {
-    // treated as dial press: quick Enter down/up
+    // treated as dial press: quick Enter down/up (90ms spans 2-3 hardware
+    // polls, so it reliably registers even under 40ms quantization)
     dial.classList.add('pressed');
-    sendKey('keydown', 'Enter', 'Enter');
+    setKey('Enter', 'Enter', true);
     setTimeout(() => {
-      sendKey('keyup', 'Enter', 'Enter');
+      setKey('Enter', 'Enter', false);
       dial.classList.remove('pressed');
     }, 90);
   }
@@ -168,9 +222,9 @@ dial.addEventListener('mousedown', () => {
       // switch to held-Enter mode; dragEnd's click path is suppressed
       dragMoved = true;
       dial.classList.add('pressed');
-      sendKey('keydown', 'Enter', 'Enter');
+      setKey('Enter', 'Enter', true);
       const up = () => {
-        sendKey('keyup', 'Enter', 'Enter');
+        setKey('Enter', 'Enter', false);
         dial.classList.remove('pressed');
         window.removeEventListener('mouseup', up);
       };
@@ -210,14 +264,14 @@ window.addEventListener('keydown', (e) => {
   const code = PASS_KEYS[e.key];
   if (!code || e.repeat || heldKeys.has(code)) return;
   heldKeys.add(code);
-  sendKey('keydown', e.key === 'M' ? 'm' : e.key, code);
+  setKey(code, e.key === 'M' ? 'm' : e.key, true);
 }, { capture: true });
 
 window.addEventListener('keyup', (e) => {
   const code = PASS_KEYS[e.key];
   if (!code || !heldKeys.has(code)) return;
   heldKeys.delete(code);
-  sendKey('keyup', e.key === 'M' ? 'm' : e.key, code);
+  setKey(code, e.key === 'M' ? 'm' : e.key, false);
 }, { capture: true });
 
 // The firmware hides the pointer (`cursor: none`) because the real device has
