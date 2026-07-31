@@ -36,3 +36,37 @@ test('an interactive session that owns a transcript is a real session', () => {
 test('a session with no cwd cannot be resolved and is treated as a viewport', () => {
   assert.equal(isViewport({ kind: 'interactive' }, 'some-id', ''), true);
 });
+
+// --- registry verdicts --------------------------------------------------------
+
+import { applyAgentState } from '../src/sessions/source-poller.js';
+
+test('a busy registry verdict is proof of work, whatever the transcript says', () => {
+  const fields = {};
+  applyAgentState(fields, 'busy');   // the field CLI 2.1.x actually publishes
+  assert.equal(fields.agentActive, true);
+  assert.ok(fields.agentActiveTs > 0);
+});
+
+test('an idle verdict never ends a turn that is only thinking', () => {
+  // Silence between two tool calls looks exactly like this, and used to clear
+  // the flag that was holding the tile busy.
+  const fields = { thinking: true };
+  applyAgentState(fields, 'idle');
+  assert.equal(fields.thinking, true, 'only the Stop hook ends a turn');
+  assert.equal(fields.agentActive, false);
+  assert.equal(fields.ended, undefined, 'idle is not gone');
+});
+
+test('a finished verdict does end the session', () => {
+  const fields = { thinking: true };
+  applyAgentState(fields, 'completed');
+  assert.equal(fields.ended, true);
+  assert.equal(fields.thinking, false);
+});
+
+test('an unknown verdict changes nothing', () => {
+  const fields = { thinking: true };
+  applyAgentState(fields, 'somethingelse');
+  assert.deepEqual(fields, { thinking: true });
+});

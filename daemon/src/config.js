@@ -47,9 +47,8 @@ export const AGENT_ACTIVE_TTL_MS = 3 * POLL_INTERVAL_MS;
 // mid-thought, hooks not installed — this stops the tile from claiming to work
 // forever. Long enough not to cut off a genuinely slow turn.
 export const THINKING_TTL_MS = 10 * 60_000;
-// Long enough to watch a run finish, short enough that closing a few terminals
-// doesn't leave the grid full of headstones.
-export const ENDED_TTL_MS = Number(process.env.CLAUDE_THING_ENDED_TTL_MS ?? 60_000);
+// Ended sessions are dropped the instant they end — no grace period. A tile you
+// can't act on is noise, and a lingering headstone reads as a live session.
 
 export const MOCK_SESSIONS = process.env.CLAUDE_THING_MOCK === '1';
 

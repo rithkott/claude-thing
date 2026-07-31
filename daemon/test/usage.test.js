@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseUsage } from '../src/usage.js';
+import { parseUsage, describeFailure } from '../src/usage.js';
 
 // Verbatim shape of `claude -p "/usage"` output.
 const SAMPLE = `You are currently using your subscription to power your Claude Code usage
@@ -90,4 +90,27 @@ test('top-skills prose is parsed into rows the device can tabulate', () => {
   assert.deepEqual(w.mcp, [{ name: 'claude-in-chrome', pct: '4%' }]);
   // the raw bullets survive, so a behaviour line is never lost to parsing
   assert.ok(w.notes.some((n) => /150k context/.test(n)));
+});
+
+// --- failure text -------------------------------------------------------------
+
+const STDIN_WARNING =
+  'Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.';
+
+test('a timed-out run says it timed out, not whatever stderr ended on', () => {
+  const err = Object.assign(new Error('Command failed'), { killed: true, signal: 'SIGTERM' });
+  const msg = describeFailure(err, STDIN_WARNING);
+  assert.match(msg, /timed out after \d+s/);
+  assert.ok(!/stdin/.test(msg), 'the warning is not the cause and must not read as one');
+});
+
+test('a real stderr line beats a warning above it', () => {
+  const err = new Error('Command failed');
+  const msg = describeFailure(err, `${STDIN_WARNING}\nError: not logged in\n`);
+  assert.equal(msg, 'Error: not logged in');
+});
+
+test('with nothing but warnings, the error message itself is used', () => {
+  const msg = describeFailure(new Error('spawn claude ENOENT'), STDIN_WARNING);
+  assert.equal(msg, 'spawn claude ENOENT');
 });

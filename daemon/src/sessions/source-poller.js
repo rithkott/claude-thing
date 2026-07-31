@@ -17,33 +17,36 @@ function pick(obj, keys, fallback) {
   return fallback;
 }
 
-// `claude agents --json` reports a coarse lifecycle state; map it onto ours.
+// `claude agents --json` reports a coarse lifecycle verdict; map it onto ours.
 // Anything unrecognized just leaves the store's activity-based derivation alone.
-// Only `state` is trusted for activity. `status` reports "busy" for any session
-// with a live process — a terminal left open overnight still says busy — so
-// deciding "working" from it would light up the whole grid.
-function applyAgentState(fields, agentState) {
-  switch (String(agentState || '').toLowerCase()) {
+//
+// The field to read is `status` — CLI 2.1.x publishes no `state` at all, so
+// reading only that one meant this whole function received null on every poll
+// and the registry never had a say in anything. `state` stays in the lookup for
+// builds that do publish it.
+//
+// Positive verdicts are trusted; absence of one is not evidence of a finished
+// turn. `busy` is exactly the signal a silent session needs, and it is
+// refreshed every couple of seconds while a turn runs.
+export function applyAgentState(fields, verdict) {
+  switch (String(verdict || '').toLowerCase()) {
     case 'running':
     case 'working':
-      fields.ended = false;
-      fields.waitingForInput = false;
+    case 'busy':
       fields.agentActive = true;
       fields.agentActiveTs = Date.now();
       break;
-    // These are the authoritative "not working" verdicts, and the only reliable
-    // way to clear a thinking flag whose Stop hook never arrived.
     case 'blocked':
     case 'waiting':
-      fields.ended = false;
       fields.waitingForInput = true;
       fields.agentActive = false;
-      fields.thinking = false;
       break;
     case 'idle':
-      fields.ended = false;
+      // Silence, not a verdict. The registry says idle through every stretch of
+      // thinking between two tool calls, so clearing `thinking` here is what
+      // dropped a working session to an idle tile the moment it stopped
+      // printing. Only the Stop hook ends a turn.
       fields.agentActive = false;
-      fields.thinking = false;
       break;
     case 'completed':
     case 'stopped':
@@ -77,7 +80,12 @@ export function startPollerSource({ store }) {
   const seen = new Set();
 
   function poll() {
-    execFile('claude', ['agents', '--json'], { timeout: 10_000 }, (err, stdout) => {
+    // disableAllHooks matters as much as the listing itself: `claude agents`
+    // boots a Claude Code process, which sometimes registers a session and
+    // fires SessionEnd on exit. With the daemon's own cwd on the payload, that
+    // arrives back at /hook as a phantom session named after this directory —
+    // the daemon polling itself into its own grid, three seconds at a time.
+    execFile('claude', ['--settings', '{"disableAllHooks":true}', 'agents', '--json'], { timeout: 10_000 }, (err, stdout) => {
       if (err) {
         if (!warned) {
           warned = true;
@@ -109,15 +117,32 @@ export function startPollerSource({ store }) {
         const isNew = !store.raw(id);
         const fields = {
           name: pick(item, ['name', 'title'], null) || (cwd ? path.basename(cwd) : 'session'),
-          cwd,
-          model: pick(item, ['model'], ''),
         };
+        // Only what the registry actually knows. `claude agents --json` carries
+        // no model at all, so writing it unconditionally meant every poll
+        // blanked the model the transcript had just supplied — and the context
+        // meter, which needs a model to know its own denominator, flashed on for
+        // one snapshot and went dark for the next three seconds.
+        if (cwd) fields.cwd = cwd;
+        const model = pick(item, ['model'], '');
+        if (model) fields.model = model;
         if (startedAt) fields.startedTs = startedAt;
         // Seed activity from startedAt so a daemon restart doesn't light every
         // known session up as "busy" for the busy window. Whether it is really
-        // working is answered by `state` below, not by this timestamp.
+        // working is answered by the registry verdict below, not by this stamp.
         if (isNew) fields.lastActivityTs = startedAt || Date.now();
-        applyAgentState(fields, pick(item, ['state'], null));
+        applyAgentState(fields, pick(item, ['state', 'status'], null));
+
+        // A registry entry the daemon reports as finished is dropped outright.
+        // Marking it ended and letting the store delete it would still start a
+        // tail below, and the next transcript line would resurrect the session
+        // as live — so bail before any of that happens.
+        if (fields.ended) {
+          seen.delete(id);
+          stopTail(id);
+          store.remove(id);
+          continue;
+        }
 
         store.upsert(id, fields);
         ensureTail(store, id, transcriptPathFor(id, cwd));
@@ -129,11 +154,11 @@ export function startPollerSource({ store }) {
       // Sessions discovered by a hook, or inherited across a daemon restart,
       // were never in `seen` and so could never be retired — which is how a
       // grid of one live session ends up showing eight.
-      for (const [id, raw] of store.entries()) {
-        if (current.has(id) || raw.ended) continue;
+      for (const [id] of store.entries()) {
+        if (current.has(id)) continue;
         seen.delete(id);
         stopTail(id);
-        store.upsert(id, { ended: true, waitingForInput: false });
+        store.remove(id);
       }
     });
   }

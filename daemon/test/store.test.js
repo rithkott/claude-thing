@@ -51,11 +51,23 @@ test('a recent stop celebrates, an old stop does not', () => {
   assert.equal(stateOf(store, 'b'), 'idle');
 });
 
-test('an ended session is never busy, however recent', () => {
+test('an ended session leaves the store at once, however recent', () => {
   const store = createStore();
-  store.touch('a', { name: 'proj', ended: true });
-  assert.equal(stateOf(store, 'a'), 'idle');
-  assert.equal(store.snapshot().sessions[0].ended, true, 'device can label it ENDED');
+  store.touch('a', { name: 'proj' });
+  store.touch('a', { ended: true });
+  assert.equal(store.get('a'), null, 'gone, not a headstone');
+  assert.equal(store.snapshot().sessions.length, 0);
+});
+
+test('the last detail event for an ended session says it ended and is idle', () => {
+  const store = createStore();
+  const seen = [];
+  store.onDetail = (d) => seen.push(d);
+  store.touch('a', { name: 'proj' });
+  store.touch('a', { ended: true });
+  const last = seen[seen.length - 1];
+  assert.equal(last.ended, true, 'a device on the detail screen learns why it vanished');
+  assert.equal(last.state, 'idle', 'never busy, however recent the activity');
 });
 
 test('a quiet but live session is idle and NOT ended', () => {
@@ -167,35 +179,34 @@ test('a stale registry verdict does not keep a quiet session busy', () => {
   assert.equal(stateOf(store, 'a'), 'idle');
 });
 
-test('ending a session clears thinking, so it cannot outlive its own exit', () => {
+test('a session that ends mid-thought does not linger as a thinking tile', () => {
   const store = createStore();
   store.upsert('a', { name: 'proj', thinking: true });
   store.upsert('a', { ended: true });
-  assert.equal(stateOf(store, 'a'), 'idle');
+  assert.equal(store.raw('a'), undefined);
+  assert.equal(store.snapshot().stats.active, 0);
 });
 
-// --- pruning -----------------------------------------------------------------
+// --- removal -----------------------------------------------------------------
 
-test('pruning measures from when a session ended, not its last activity', () => {
+test('an ended session takes no space at all, so one-shot runs cannot pile up', () => {
   const store = createStore();
-  // Worked right up to the moment it exited: lastActivityTs is recent, and the
-  // old prune keyed off that, so the tile outstayed its welcome by the full TTL.
-  store.upsert('a', { name: 'proj', ended: true });
-  const s = store.raw('a');
-  assert.ok(s.endedTs, 'endedTs is stamped on the transition');
-  s.endedTs = Date.now() - 61 * ONE_SEC;      // past the 60s ENDED_TTL_MS
-  s.lastActivityTs = Date.now();
-  store.upsert('a', {});                       // provoke a re-derive
-  assert.equal(store.raw('a').endedTs < Date.now() - 60 * ONE_SEC, true);
+  for (let i = 0; i < 30; i++) {
+    store.upsert(`s${i}`, { name: `s${i}` });
+    store.upsert(`s${i}`, { ended: true });
+  }
+  assert.equal(store.count(), 0);
 });
 
-test('a session brought back to life loses its ended stamp', () => {
+test('a session that starts again after ending comes back as a live record', () => {
   const store = createStore();
   store.upsert('a', { name: 'proj', ended: true });
-  assert.ok(store.raw('a').endedTs);
-  store.touch('a', { ended: false });
-  assert.equal(store.raw('a').endedTs, null);
-  assert.equal(store.snapshot().sessions[0].ended, false);
+  assert.equal(store.raw('a'), undefined);
+  store.touch('a', { name: 'proj', ended: false });
+  const s = store.snapshot().sessions[0];
+  assert.equal(s.id, 'a');
+  assert.equal(s.ended, false);
+  assert.equal(s.state, 'busy');
 });
 
 test('entries() exposes every session so the poller can retire strays', () => {
@@ -203,4 +214,25 @@ test('entries() exposes every session so the poller can retire strays', () => {
   store.upsert('a', { name: 'one' });
   store.upsert('b', { name: 'two' });
   assert.deepEqual(store.entries().map(([id]) => id).sort(), ['a', 'b']);
+});
+
+test('a blank field from one source never erases what another source knew', () => {
+  // The poller has no model to offer; the transcript does. A poll must not undo
+  // it, or the context meter loses its denominator every three seconds.
+  const store = createStore();
+  store.touch('a', { name: 'proj', model: 'claude-opus-5', contextTokens: 250_000 });
+  assert.equal(store.snapshot().sessions[0].context, 0.25);
+  store.touch('a', { name: 'proj' });
+  assert.equal(store.snapshot().sessions[0].context, 0.25, 'meter survives a poll');
+});
+
+test('a turn longer than the thinking TTL stays busy while hooks keep arriving', () => {
+  const store = createStore();
+  store.upsert('a', { name: 'proj', thinking: true, lastActivityTs: Date.now() - 60 * ONE_SEC });
+  store.raw('a').thinkingTs = Date.now() - 11 * 60 * ONE_SEC;   // turn began long ago
+  assert.equal(stateOf(store, 'a'), 'idle', 'stale with no further proof of life');
+
+  // A PreToolUse hook re-asserting "thinking" is that proof, and restamps.
+  store.upsert('a', { thinking: true, lastActivityTs: Date.now() - 60 * ONE_SEC });
+  assert.equal(stateOf(store, 'a'), 'busy', 'silence since the last hook is what counts');
 });

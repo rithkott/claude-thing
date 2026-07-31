@@ -3,7 +3,7 @@
 // emits debounced full snapshots via onSnapshot.
 
 import {
-  SESSION_CAP, SNAPSHOT_DEBOUNCE_MS, BUSY_WINDOW_MS, CELEBRATE_MS, ENDED_TTL_MS,
+  SESSION_CAP, SNAPSHOT_DEBOUNCE_MS, BUSY_WINDOW_MS, CELEBRATE_MS,
   AGENT_ACTIVE_TTL_MS, THINKING_TTL_MS,
 } from '../config.js';
 import { contextFraction } from '../context-window.js';
@@ -91,15 +91,24 @@ export function createStore() {
       s = { id, startedTs: Date.now(), lastActivityTs: Date.now() };
       sessions.set(id, s);
     }
-    const wasThinking = s.thinking;
     Object.assign(s, fields);
-    if (s.thinking && !wasThinking) s.thinkingTs = Date.now();
-    // Stamp the moment it ended, so pruning measures from then. Keying off
-    // lastActivityTs instead meant a session that worked right up to its exit
-    // sat on screen for the whole TTL, while a quiet one vanished at once.
-    if (s.ended && !s.endedTs) s.endedTs = Date.now();
-    if (!s.ended && s.endedTs) s.endedTs = null;
-    if (s.ended) { s.thinking = false; s.agentActive = false; }
+    // Every fresh assertion that the session is thinking restamps the clock, so
+    // the TTL measures silence since the last proof of life rather than time
+    // since the turn began. Stamping only on the false->true edge meant a turn
+    // longer than the TTL aged out mid-thought.
+    if (fields.thinking) s.thinkingTs = Date.now();
+    // An ended session leaves at once rather than sitting out a grace period:
+    // it can't be acted on, and a headstone tile reads as a live session. The
+    // detail event still goes out, so a device parked on that screen learns the
+    // session ended instead of watching a frozen tile.
+    if (s.ended) {
+      s.thinking = false;
+      s.agentActive = false;
+      sessions.delete(id);
+      scheduleSnapshot();
+      onDetail(detail(s));
+      return s;
+    }
     scheduleSnapshot();
     onDetail(detail(s));
     return s;
@@ -118,22 +127,8 @@ export function createStore() {
     if (sessions.delete(id)) scheduleSnapshot();
   }
 
-  // Ended sessions are worth showing for a while — you want to see what just
-  // finished — but not forever, or short-lived one-shot runs pile up.
-  function prune() {
-    const cutoff = Date.now() - ENDED_TTL_MS;
-    let removed = 0;
-    for (const [id, s] of sessions) {
-      if (s.ended && (s.endedTs || s.lastActivityTs) < cutoff) {
-        sessions.delete(id);
-        removed++;
-      }
-    }
-    if (removed) scheduleSnapshot();
-  }
-
   // periodic re-derive so celebrate->idle / busy->idle transitions emit
-  setInterval(() => { prune(); scheduleSnapshot(); }, 5_000).unref();
+  setInterval(() => { scheduleSnapshot(); }, 5_000).unref();
 
   return {
     upsert, touch, get, remove, snapshot,

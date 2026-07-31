@@ -11,20 +11,27 @@ export function startHooksSource({ store, queue }) {
   function onHookEvent(event, payload) {
     const id = payload.session_id;
     if (!id || isOwnSession(id)) return;
+    const known = store.raw(id);
+    // A session whose very first hook is SessionEnd was never on the grid, and
+    // creating it now only adds a tile that is already dead. Short-lived
+    // `claude` invocations — the daemon's own registry polls among them — end
+    // this way, so this is the difference between a clean grid and a phantom
+    // appearing every few seconds.
+    if (!known && event === 'SessionEnd') return;
     const cwd = payload.cwd || '';
     // A hook's cwd is wherever the session currently is, which moves as the
     // agent cds around — so it must never overwrite a real name. The poller and
     // the session registry both carry the session's actual task name; the
     // directory basename is only a fallback for a session we have never named.
-    const known = store.raw(id);
     const registryName = known && known.name ? null : (lookupSession(id) || {}).name;
     const base = { cwd: cwd || undefined };
     if (!known || !known.name) {
       base.name = registryName || (cwd ? path.basename(cwd) : undefined);
     }
-    // Any hook but SessionEnd is proof of life. The poller retires sessions the
-    // registry stops listing, so a session it can't see needs a way back.
-    if (known && known.ended && event !== 'SessionEnd') base.ended = false;
+    // Any hook but SessionEnd is proof of life. Ended sessions are deleted, not
+    // flagged, so a session the poller dropped comes back as a fresh record —
+    // this only has to make sure the flag never sticks on the way in.
+    if (event !== 'SessionEnd') base.ended = false;
     ensureTail(store, id, payload.transcript_path || transcriptPathFor(id, cwd));
 
     switch (event) {

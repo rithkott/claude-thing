@@ -15,7 +15,12 @@ import { USAGE_REFRESH_MS } from './config.js';
 import { isOwnSession, markOwnSession } from './own-sessions.js';
 import { log } from './log.js';
 
-const RUN_TIMEOUT_MS = 25_000;
+// A run costs no inference but still boots Claude Code and reads the plan, which
+// takes the better part of 20 seconds on a cold start. The old 25s ceiling cut
+// slower runs off, and the timeout then reported whatever stderr happened to
+// hold — which is how a harmless stdin warning ended up on the usage screen as
+// the failure. Well under the 60s refresh, so runs still never overlap.
+const RUN_TIMEOUT_MS = 45_000;
 
 // "Current session: 11% used · resets Jul 30 at 5:19am (America/New_York)"
 const LIMIT_RE = /^\s*Current\s+(session|week[^:]*):\s*(\d+)%\s*used(?:\s*·\s*resets\s+([^(\n]+?))?\s*(?:\(([^)]+)\))?\s*$/i;
@@ -111,6 +116,20 @@ export function parseUsage(text, now = Date.now()) {
   };
 }
 
+// What actually went wrong, in the words the device has room for. A killed run
+// timed out — say that, rather than quoting whichever line stderr happened to
+// end on, which is how warnings get mistaken for causes.
+export function describeFailure(err, stderr) {
+  if (err && (err.killed || err.signal)) {
+    return `timed out after ${Math.round(RUN_TIMEOUT_MS / 1000)}s`;
+  }
+  const line = String(stderr || '')
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => l && !/^warning:/i.test(l));
+  return line || String((err && err.message) || 'unknown error').split('\n')[0];
+}
+
 export function createUsage({ emit }) {
   let latest = null;
   let timer = null;
@@ -133,9 +152,13 @@ export function createUsage({ emit }) {
           cwd: os.tmpdir(),
           env: { ...process.env, CLAUDE_CODE_SKIP_PROMPT_HISTORY: '1' },
           maxBuffer: 1024 * 1024,
+          // Closed stdin, not an idle pipe. `claude -p` waits three seconds for
+          // input that is never coming, warns about it, and only then starts —
+          // three seconds of every run, spent on nothing.
+          stdio: ['ignore', 'pipe', 'pipe'],
         },
         (err, stdout, stderr) => {
-          if (err) return resolve({ error: String(stderr || err.message).split('\n')[0] });
+          if (err) return resolve({ error: describeFailure(err, stderr) });
           resolve({ text: String(stdout) });
         }
       );
