@@ -19,7 +19,10 @@ export function createHub() {
     for (const socket of clients.keys()) {
       if (socket.readyState === socket.OPEN) socket.send(frame);
     }
-    if (!topic.startsWith('claude.sessions.')) log('EV', topic);
+    // Session snapshots fire constantly and would drown the log — but they are
+    // also the one event class you need when tiles misbehave, so the flag
+    // un-silences them.
+    if (!topic.startsWith('claude.sessions.') || process.env.CLAUDE_THING_DEBUG_EVENTS === '1') log('EV', topic);
   }
 
   function rolesOnline() {
