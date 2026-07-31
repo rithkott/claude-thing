@@ -53,7 +53,21 @@ After the PR merges:
 git fetch origin
 git tag rN origin/main
 git push origin rN
-gh release create rN --generate-notes   # optional but preferred
+gh release create rN --generate-notes
+```
+
+Every release ships the current DMG and firmware zip as assets — no asset-less releases:
+
+```sh
+# firmware: always rebuilt (device-app may have changed)
+npm --prefix device-app run build
+node scripts/inject-firmware.js --zip ~/Downloads/nocturne_image_v<ver>.zip \
+  --nocturned dist/nocturned --out dist/nocturne_v<ver>_claude_rN.zip
+
+# DMG: rebuild with scripts/build-connector-dmg.sh ONLY if patches/, mac/, or
+# the connector relay changed since the last DMG; otherwise reuse dist/Nocturne-claude-*.dmg
+
+gh release upload rN dist/nocturne_v<ver>_claude_rN.zip dist/Nocturne-claude-*.dmg
 ```
 
 ### 6. Clean up
@@ -66,5 +80,6 @@ git branch -D feat/<slug>
 ### Rules
 
 - Every merge to `main` = exactly one release number, one `RELEASES.md` row, one tag.
+- Every GitHub release carries the latest DMG and firmware zip as downloadable assets.
 - No direct commits to `main` except the automated parts of this flow.
 - Multiple features in flight is the normal case; worktrees keep them independent, the ledger serializes them at merge time.
