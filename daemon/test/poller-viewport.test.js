@@ -37,6 +37,27 @@ test('a session with no cwd cannot be resolved and is treated as a viewport', ()
   assert.equal(isViewport({ kind: 'interactive' }, 'some-id', ''), true);
 });
 
+// --- forked background jobs ---------------------------------------------------
+
+import { parseForkParents } from '../src/sessions/source-poller.js';
+
+const FORK_CMD = '/Users/nobody/.local/share/claude/versions/2.1.220 --session-id 47d8e0a3-19d0-4cb5-9b54-8a5a81a4d513 --fork-session --resume /Users/nobody/.claude/projects/-Users-nobody-demo/0468c90f-56c1-40e4-98df-25238da608f5.jsonl --reply-on-resume --permission-mode auto';
+
+test('the window a background job forked from is named on the job command line', () => {
+  const parents = parseForkParents(`claude\n${FORK_CMD}\nnode index.js\n`);
+  assert.deepEqual([...parents], ['0468c90f-56c1-40e4-98df-25238da608f5']);
+});
+
+test('a plain resume is not a fork and strands no parent', () => {
+  const resumed = FORK_CMD.replace(' --fork-session', '');
+  assert.equal(parseForkParents(resumed).size, 0);
+});
+
+test('no processes at all yields no parents rather than throwing', () => {
+  assert.equal(parseForkParents('').size, 0);
+  assert.equal(parseForkParents(null).size, 0);
+});
+
 // --- registry verdicts --------------------------------------------------------
 
 import { applyAgentState } from '../src/sessions/source-poller.js';
