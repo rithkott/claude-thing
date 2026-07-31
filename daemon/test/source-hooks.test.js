@@ -35,14 +35,29 @@ test('a finished turn celebrates instead of asking for attention', () => {
   assert.equal(store.get('turn-1').state, 'celebrate');
 });
 
-test('a real block still asks for attention, and the next Stop clears it', () => {
+test('a permission notification asks for attention, and the next Stop clears it', () => {
   const store = createStore();
   const { onHookEvent } = startHooksSource({ store });
   onHookEvent('SessionStart', { session_id: 'block-1', cwd: '/Users/dev/proj' });
-  onHookEvent('Notification', { session_id: 'block-1', cwd: '/Users/dev/proj' });
+  onHookEvent('Notification', {
+    session_id: 'block-1', cwd: '/Users/dev/proj',
+    message: 'Claude needs your permission to use Bash',
+  });
   assert.equal(store.get('block-1').state, 'attention');
   onHookEvent('Stop', { session_id: 'block-1', cwd: '/Users/dev/proj' });
   assert.equal(store.get('block-1').state, 'celebrate', 'a stale block does not outlive the turn');
+});
+
+test('the idle nudge after a finished turn is not a block', () => {
+  const store = createStore();
+  const { onHookEvent } = startHooksSource({ store });
+  onHookEvent('SessionStart', { session_id: 'nudge-1', cwd: '/Users/dev/proj' });
+  onHookEvent('Stop', { session_id: 'nudge-1', cwd: '/Users/dev/proj' });
+  onHookEvent('Notification', {
+    session_id: 'nudge-1', cwd: '/Users/dev/proj',
+    message: 'Claude is waiting for your input',
+  });
+  assert.notEqual(store.get('nudge-1').state, 'attention');
 });
 
 test("the daemon's own usage runs are ignored whatever hook they fire", () => {

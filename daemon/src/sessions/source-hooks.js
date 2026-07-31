@@ -63,13 +63,21 @@ export function startHooksSource({ store, queue }) {
         // A finished turn is not a block. Flagging waitingForInput here made
         // attention win the state machine's first test, so every completed turn
         // rendered ATTENTION forever instead of DONE decaying to IDLE. Reserve
-        // waitingForInput for real blocks: Notification, AskUserQuestion,
-        // permissions.
+        // waitingForInput for real blocks: permission asks and AskUserQuestion.
         store.touch(id, { ...base, stoppedTs: Date.now(), currentTool: null, waitingForInput: false, thinking: false });
         break;
-      case 'Notification':
-        store.touch(id, { ...base, waitingForInput: true });
+      case 'Notification': {
+        // Claude Code fires Notification for two unrelated things: a permission
+        // ask, and a "still waiting for your input" nudge a minute after a turn
+        // ends. The nudge is not a block — reading it as one flipped every
+        // finished session back to ATTENTION once the DONE window had passed,
+        // and nothing but the next prompt cleared it. Only the permission
+        // flavour blocks, and this is the fallback for it: the connector's
+        // permission bridge carries the real ask when it is installed.
+        const asking = /permission|approve|allow|confirm/i.test(String(payload.message || ''));
+        store.touch(id, asking ? { ...base, waitingForInput: true } : base);
         break;
+      }
       case 'SessionEnd':
         store.upsert(id, { ...base, ended: true, currentTool: null, waitingForInput: false });
         stopTail(id);
