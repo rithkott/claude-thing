@@ -10,3 +10,4 @@ Claimed release numbers. One row per merge to `main`. See CLAUDE.md → Release 
 | r4 | 2026-07-31 | emulator-fidelity | Emulator matches real hardware: true-scale dial, CPU/RAM caps, chrome69 code path, 40ms key polling, device fonts |
 | r5 | 2026-07-31 | plan-approval-bridge | Plan approvals surface on the device as questions; hook allow never worked for ExitPlanMode |
 | r6 | 2026-07-31 | release-assets | Every release ships the DMG and firmware zip as assets |
+| r7 | 2026-07-31 | dial-accuracy | Dial matches real Car Thing photos: plain 36mm disc upper-right, overhangs face edge |

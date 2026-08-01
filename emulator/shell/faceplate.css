@@ -1,10 +1,11 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 /* True-to-hardware scale: the 3.97" 800×480 panel is 86.4mm wide, so
-   1mm = 800/86.4 = 9.259px. Every physical dimension below derives from the
-   real device: face 124×64mm, dial ⌀48mm overlapping the screen's right edge
-   (physics — 86.4mm panel + 48mm dial > 124mm face — and how the real unit
-   looks; the stock UI keeps critical content away from the far right). */
+   1mm = 800/86.4 = 9.259px. Dimensions measured off Spotify's product
+   photography: face 117×64mm (the quoted 124mm width includes the dial
+   overhang + logo tag), dial ⌀36mm sitting upper-right ~5mm from the top
+   edge with its center ~9mm in from the right edge — so it overhangs the
+   face's right side by ~8.5mm and just kisses the display's right edge. */
 :root { --mm: 9.259px; }
 
 body {
@@ -29,8 +30,10 @@ body {
 
 .device {
   position: relative;
-  width: calc(124 * var(--mm));   /* 1148px */
+  width: calc(117 * var(--mm));   /* 1083px */
   height: calc(64 * var(--mm));   /* 593px */
+  /* reserve room for the dial overhang so centering doesn't clip it */
+  margin-right: calc(8.5 * var(--mm));
   background: linear-gradient(160deg, #2c2d31 0%, #232427 55%, #1c1d20 100%);
   border-radius: 40px;
   box-shadow:
@@ -45,7 +48,7 @@ body {
   position: absolute;
   top: -14px;
   left: 80px;
-  right: 420px;
+  right: 270px; /* stop before the dial region */
   display: flex;
   gap: 26px;
   align-items: flex-end;
@@ -126,36 +129,34 @@ body {
   letter-spacing: 0.04em;
 }
 
-/* ---- dial: ⌀48mm, overlaps the screen's right edge like the real unit ---- */
+/* ---- dial: ⌀36mm plain disc, upper right, overhangs the face edge ---- */
 
 /* Drop shadow lives on its own layer: clip-path on .dial would clip the
    shadow away, and the shadow layer must not eat clicks. */
 .dial-shadow {
   position: absolute;
-  left: calc(73.1 * var(--mm));   /* 677px */
-  top: calc(8 * var(--mm));       /* 74px — vertically centered */
-  width: calc(48 * var(--mm));    /* 445px */
-  height: calc(48 * var(--mm));
+  left: calc(89.5 * var(--mm));   /* 829px — just kisses the screen's edge */
+  top: calc(5 * var(--mm));       /* 46px */
+  width: calc(36 * var(--mm));    /* 333px */
+  height: calc(36 * var(--mm));
   border-radius: 50%;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.65);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
   z-index: 2;
   pointer-events: none;
 }
 
 .dial {
   position: absolute;
-  left: calc(73.1 * var(--mm));
-  top: calc(8 * var(--mm));
-  width: calc(48 * var(--mm));
-  height: calc(48 * var(--mm));
+  left: calc(89.5 * var(--mm));
+  top: calc(5 * var(--mm));
+  width: calc(36 * var(--mm));
+  height: calc(36 * var(--mm));
   border-radius: 50%;
   /* Chrome hit-tests against clip-path: clicks in the square corners fall
      through to the screen underneath. */
   clip-path: circle(50%);
-  background: radial-gradient(circle at 35% 30%, #3f4046, #232428 70%);
-  box-shadow:
-    inset 0 2px 3px rgba(255, 255, 255, 0.1),
-    inset 0 -6px 16px rgba(0, 0, 0, 0.55);
+  /* cylindrical side wall, slightly darker than the top face */
+  background: radial-gradient(circle at 50% 42%, #3b3a3c, #2a292b 78%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -166,57 +167,35 @@ body {
 
 .dial:active { cursor: grabbing; }
 
+/* The real knob is a plain smooth disc — no ridges, no index dot. Rotation
+   feedback comes from the off-center sheen rotating with the transform. */
 .dial-knob {
-  width: calc(43 * var(--mm));    /* 398px */
-  height: calc(43 * var(--mm));
+  width: 97%;
+  height: 97%;
   border-radius: 50%;
   position: relative;
-  background:
-    radial-gradient(circle at 40% 32%, #4a4b52, #2b2c31 75%);
+  background: radial-gradient(circle at 42% 34%, #403f42, #2e2d2f 75%);
   box-shadow:
-    inset 0 1px 2px rgba(255, 255, 255, 0.14),
-    inset 0 -6px 18px rgba(0, 0, 0, 0.5),
-    0 6px 20px rgba(0, 0, 0, 0.5);
+    inset 0 2px 3px rgba(255, 255, 255, 0.09),
+    inset 0 -4px 12px rgba(0, 0, 0, 0.45),
+    0 4px 14px rgba(0, 0, 0, 0.5);
   transition: box-shadow 80ms ease;
 }
 
 .dial.pressed .dial-knob {
   box-shadow:
-    inset 0 4px 16px rgba(0, 0, 0, 0.7),
-    0 2px 6px rgba(0, 0, 0, 0.4);
+    inset 0 4px 14px rgba(0, 0, 0, 0.7),
+    0 2px 5px rgba(0, 0, 0, 0.4);
 }
 
-.dial-ridges {
-  position: absolute;
-  top: 0; right: 0; bottom: 0; left: 0;
-  border-radius: 50%;
-  background: repeating-conic-gradient(
-    rgba(255, 255, 255, 0.045) 0deg 2deg,
-    transparent 2deg 6deg
-  );
-  -webkit-mask: radial-gradient(circle, transparent 58%, black 62%);
-  mask: radial-gradient(circle, transparent 58%, black 62%);
-}
-
-.dial-dot {
-  position: absolute;
-  top: 28px;
-  left: 50%;
-  width: 16px;
-  height: 16px;
-  margin-left: -8px;
-  border-radius: 50%;
-  background: #63656d;
-}
-
-/* ---- back button: small circle at the lower right, below the dial edge ---- */
+/* ---- back button: small circle below the dial, near the corner ---- */
 
 .back-btn {
   position: absolute;
-  left: calc(112.5 * var(--mm));  /* 1042px */
-  top: calc(55.5 * var(--mm));    /* 514px */
-  width: calc(7 * var(--mm));     /* 65px */
-  height: calc(7 * var(--mm));
+  left: calc(101.6 * var(--mm));  /* 941px */
+  top: calc(46.7 * var(--mm));    /* 432px */
+  width: calc(10.6 * var(--mm));  /* 98px */
+  height: calc(10.6 * var(--mm));
   border: none;
   border-radius: 50%;
   cursor: pointer;
