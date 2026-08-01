@@ -22,3 +22,4 @@ Claimed release numbers. One row per merge to `main`. See CLAUDE.md → Release 
 | r16 | 2026-07-31 | bt-menu-claude-mode | Bluetooth management without leaving Claude mode: hold the settings key for pairing, paired devices, and per-device actions |
 | r17 | 2026-07-31 | session-order | Session list stops reshuffling: a working session only moves past idle ones, never past another working one |
 | r18 | 2026-08-01 | perf-event-flood | Device stops freezing under many sessions: daemon event flood debounced at the source, device repaints only when the screen actually changes |
+| r19 | 2026-08-01 | duplicate-question-alert | One alert per question: a multiple-choice ask stops also raising a permission card with a raw JSON body |

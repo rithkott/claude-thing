@@ -153,6 +153,32 @@ test('ExitPlanMode is never held — hook gets "ask" back, plan goes to the queu
   assert.ok(!events.some((e) => e.topic === 'claude.permission.request'), 'no permission tile');
 });
 
+test('AskUserQuestion is never held — PreToolUse already queued the real card', () => {
+  const planCalls = [];
+  const { bridge, store, events } = setup({ onPlanApproval: (p) => planCalls.push(p) });
+  const res = fakeRes();
+  bridge.onHookRequest({
+    session_id: 'sess-1',
+    tool_name: 'AskUserQuestion',
+    tool_input: { questions: [{ header: 'Task', question: 'Which?', options: [{ label: 'A' }] }] },
+  }, res);
+
+  assert.equal(decisionOf(res), 'ask', 'terminal keeps the gate');
+  assert.equal(bridge.pendingCount(), 0, 'nothing held');
+  assert.equal(planCalls.length, 0, 'not a plan');
+  assert.ok(!events.some((e) => e.topic === 'claude.permission.request'), 'no second card');
+  assert.ok(!store.get('sess-1'), 'no permission state on the session');
+});
+
+test('a tool with no salient key summarises readably, never as raw JSON', () => {
+  const { bridge, events } = setup();
+  bridge.onHookRequest({ ...HOOK, tool_name: 'Task', tool_input: { prompt: 'go find it' } }, fakeRes());
+  bridge.onHookRequest({ ...HOOK, tool_name: 'Weird', tool_input: { questions: [{ a: 1 }], n: 2 } }, fakeRes());
+  const summaries = events.filter((e) => e.topic === 'claude.permission.request').map((e) => e.data.summary);
+  assert.deepEqual(summaries, ['go find it', 'questions, n']);
+  assert.ok(!summaries.some((s) => s.includes('{')), 'no JSON reaches the device');
+});
+
 test('file and url tools summarise their salient argument', () => {
   const { bridge, events } = setup();
   bridge.onHookRequest({ ...HOOK, tool_name: 'Edit', tool_input: { file_path: '/tmp/a.js' } }, fakeRes());
