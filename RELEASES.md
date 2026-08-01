@@ -33,3 +33,4 @@ Claimed release numbers. One row per merge to `main`. See CLAUDE.md → Release 
 | r27 | 2026-08-01 | type-parked | A backgrounded job's question is answered from the device outright — the keypress is typed into the window parked on it |
 | r28 | 2026-08-01 | nul-byte | A stray NUL byte in the session poller is gone, so the file diffs, blames and greps as text again |
 | r29 | 2026-08-01 | queue-sync | Stale asks disappear: the daemon pushes its waiting list on every client hello and the device drops cards it no longer vouches for |
+| r30 | 2026-08-01 | tile-model-meter | Each tile names its model; the context meter carries its own CONTEXT NN% label inside a taller track |

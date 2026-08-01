@@ -354,6 +354,46 @@ test('no context reading means no meter, never a meter against a guess', () => {
   assert.doesNotMatch(html, /ctxtrack/);
 });
 
+test('the track carries its own label, ink flipping as the fill passes under', () => {
+  const early = renderList(baseState({
+    sessions: [{ id: 'a', name: 'proj', state: 'busy', tokens: { in: 1, out: 2 }, context: 0.12 }],
+  }));
+  assert.match(early, /<span class="ctxword">CONTEXT<\/span>/, 'word over bare track');
+  assert.match(early, /<span class="ctxnum">12%<\/span>/, 'number over bare track');
+
+  const mid = renderList(baseState({
+    sessions: [{ id: 'a', name: 'proj', state: 'busy', tokens: { in: 1, out: 2 }, context: 0.2 }],
+  }));
+  assert.match(mid, /<span class="ctxword over">CONTEXT<\/span>/, 'word flips first');
+  assert.match(mid, /<span class="ctxnum">20%<\/span>/, 'number still over bare track');
+
+  const late = renderList(baseState({
+    sessions: [{ id: 'a', name: 'proj', state: 'busy', tokens: { in: 1, out: 2 }, context: 0.5 }],
+  }));
+  assert.match(late, /<span class="ctxnum over">50%<\/span>/, 'number flips past 34%');
+  assert.doesNotMatch(late, /ctxrow/, 'no line above the track spent on a number');
+});
+
+test('the tile names its model, even on an ended session with no meter', () => {
+  const live = renderList(baseState({
+    sessions: [{ id: 'a', name: 'proj', state: 'busy', tokens: { in: 1, out: 2 },
+      context: 0.34, model: 'claude-fable-5' }],
+  }));
+  assert.match(live, /<div class="tmodel">fable-5<\/div>/, 'model prefix trimmed');
+
+  const ended = renderList(baseState({
+    sessions: [{ id: 'a', name: 'proj', state: 'idle', ended: true,
+      tokens: { in: 1, out: 2 }, context: null, model: 'claude-fable-5' }],
+  }));
+  assert.match(ended, /<div class="tmodel">fable-5<\/div>/, 'spec line survives the meter');
+  assert.doesNotMatch(ended, /ctxtrack/);
+
+  const unnamed = renderList(baseState({
+    sessions: [{ id: 'a', name: 'proj', state: 'busy', tokens: { in: 1, out: 2 }, context: null }],
+  }));
+  assert.doesNotMatch(unnamed, /tmodel/, 'no model named, no line drawn');
+});
+
 test('the top bar counts what it is listing', () => {
   const html = renderList(baseState({
     sessions: [

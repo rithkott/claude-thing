@@ -157,7 +157,7 @@ test('summary stays small: name clamped, only the agreed fields', () => {
   const s = store.snapshot().sessions[0];
   assert.equal(s.name.length, 32);
   assert.deepEqual(Object.keys(s).sort(), [
-    'context', 'effort', 'ended', 'id', 'lastActivityTs', 'name',
+    'context', 'effort', 'ended', 'id', 'lastActivityTs', 'model', 'name',
     'pendingPermission', 'permissionMode', 'state', 'tokens',
   ]);
   assert.deepEqual(s.tokens, { in: 5, out: 7 });
@@ -173,6 +173,16 @@ test('effort rides the summary, null until a transcript reports one', () => {
   assert.equal(store.snapshot().sessions[0].effort, 'xhigh');
   store.upsert('a', { effort: 'ultrathink' });
   assert.equal(store.snapshot().sessions[0].effort, 'ultrathink', 'an effort change follows');
+});
+
+test('model rides the summary, empty until a source names one', () => {
+  const store = createStore();
+  store.touch('a', { name: 'proj' });
+  assert.equal(store.snapshot().sessions[0].model, '',
+    'no guess for a session nothing has named a model for');
+  store.upsert('a', { model: 'claude-fable-5' });
+  assert.equal(store.snapshot().sessions[0].model, 'claude-fable-5');
+  assert.equal(store.get('a').model, 'claude-fable-5', 'detail carries it too');
 });
 
 test('permission mode rides the summary, null until a source reports one', () => {

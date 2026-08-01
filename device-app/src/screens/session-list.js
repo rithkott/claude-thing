@@ -61,7 +61,7 @@ function tile(s, selected, state, off) {
     // overflows; see marquee() in main.js.
     '<div class="tname"><span class="tnamei" data-marquee="1">' + esc(s.name) + '</span></div>' +
     '<div class="tsub">' + esc(subline(s, state)) + '</div>' +
-    contextMeter(s.context) +
+    meterBlock(s) +
     '<div class="mcol"><span class="sprite"></span>' +
     (eff ? '<span class="elabel">' + eff + '</span>' : '') + '</div>' +
     '</div>';
@@ -77,18 +77,31 @@ function modeChip(mode) {
   return '<span class="mode m-' + label.toLowerCase() + '">' + label + '</span>';
 }
 
+// The tile's bottom-left block: the model as a spec line, then the context
+// track. The model prints whenever a source has named one — including on ended
+// sessions, where there is no meter at all — and the track carries its own
+// CONTEXT NN% label inside, so no line above it is spent on a number.
+//
 // Neutral all the way up, red only near the top: a filling context window is
 // normal and must not read as an alarm until it is actually close to
 // compacting. Absent when the daemon can't work out the fraction.
-function contextMeter(fraction) {
-  if (fraction == null) return '';
-  var pct = Math.max(0, Math.min(1, fraction));
-  var hot = pct >= 0.8 ? ' hot' : '';
-  return '<div class="ctx' + hot + '">' +
-    '<div class="ctxrow"><span class="ctxpct">' + Math.round(pct * 100) + '%</span>' +
-    '<span class="ctxlabel">context</span></div>' +
-    '<div class="ctxtrack"><span class="ctxfill" style="width:' + (pct * 100).toFixed(1) + '%"></span></div>' +
-    '</div>';
+function meterBlock(s) {
+  var model = (s.model || '').replace(/^claude-/, '');
+  if (!model && s.context == null) return '';
+  var hot = s.context != null && s.context >= 0.8 ? ' hot' : '';
+  var html = '<div class="ctx' + hot + '">';
+  if (model) html += '<div class="tmodel">' + esc(model) + '</div>';
+  if (s.context != null) {
+    var pct = Math.max(0, Math.min(1, s.context));
+    // The label rides on top of the fill: each part takes the dark ink once
+    // the bar has grown under it, the word first, the number a little later.
+    html += '<div class="ctxtrack">' +
+      '<span class="ctxfill" style="width:' + (pct * 100).toFixed(1) + '%"></span>' +
+      '<span class="ctxtext"><span class="ctxword' + (pct > 0.16 ? ' over' : '') + '">CONTEXT</span>' +
+      '<span class="ctxnum' + (pct > 0.34 ? ' over' : '') + '">' + Math.round(pct * 100) + '%</span></span>' +
+      '</div>';
+  }
+  return html + '</div>';
 }
 
 function subline(s, state) {
