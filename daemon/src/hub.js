@@ -6,7 +6,7 @@ import { WebSocketServer } from 'ws';
 import { DAEMON_VERSION } from './config.js';
 import { log } from './log.js';
 
-export function createHub() {
+export function createHub({ onHello } = {}) {
   const wss = new WebSocketServer({ noServer: true });
   const clients = new Map(); // socket -> {role, info, connectedAt}
   let methods = {};          // method -> async handler(params, ctx)
@@ -63,7 +63,13 @@ export function createHub() {
         meta.info = (msg.params && msg.params.info) || {};
         log('--', `client hello: ${meta.role}`);
         emit('bridge.clients', rolesOnline());
-        return respond({ type: 'response', id: msg.id, result: { ok: true, daemonVersion: DAEMON_VERSION } });
+        respond({ type: 'response', id: msg.id, result: { ok: true, daemonVersion: DAEMON_VERSION } });
+        // A client arriving is the only moment a restarted daemon can correct
+        // whatever a screen has been showing since the old one died. The device
+        // cannot ask on its own: on real hardware its socket is to the
+        // connector, which never noticed the daemon go.
+        if (onHello) onHello(meta.role);
+        return;
       }
       if (msg.method === 'bridge.status') {
         connectorStatus = { ...(msg.params || {}), updatedTs: Date.now() };

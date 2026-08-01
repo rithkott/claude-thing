@@ -85,6 +85,41 @@ export function pushAsk(ask) {
   update({});
 }
 
+// The daemon's list of what is still waiting, made authoritative. Adding alone
+// was not enough: an ask the daemon forgot — because it restarted, or resolved
+// one while this screen was disconnected — had nothing left that could ever
+// resolve it, so the card sat in the queue forever and answering it could only
+// ever fail. Anything the daemon no longer vouches for goes.
+//
+// Locally expired cards are the exception: they are notices about prompts that
+// moved to the terminal, the daemon never lists them, and sweepExpired ages
+// them out on its own schedule.
+export function reconcileAsks(list) {
+  var live = {};
+  for (var i = 0; i < list.length; i++) live[list[i].id] = true;
+  var next = [];
+  for (var j = 0; j < state.asks.length; j++) {
+    var a = state.asks[j];
+    if (live[a.id] || a.expired) next.push(a);
+  }
+  var known = {};
+  for (var k = 0; k < next.length; k++) known[next[k].id] = true;
+  for (var n = 0; n < list.length; n++) {
+    if (known[list[n].id]) continue;
+    var ask = list[n];
+    if (!ask.sessionName) ask.sessionName = sessionName(ask.sessionId);
+    next.push(ask);
+  }
+  if (next.length === state.asks.length) {
+    var same = true;
+    for (var s = 0; s < next.length; s++) if (next[s] !== state.asks[s]) same = false;
+    if (same) return next.length;
+  }
+  var qi = Math.min(state.queueIndex, Math.max(0, next.length - 1));
+  update({ asks: next, queueIndex: qi, queueAnswering: false, queueChoice: 0 });
+  return next.length;
+}
+
 // A timed-out permission is not answered — it has moved to the terminal. It
 // stays on the device saying so, because silently vanishing looks identical to
 // somebody else having answered it.
