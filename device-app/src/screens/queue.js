@@ -33,7 +33,7 @@ export function renderQueue(state) {
   return '<div class="screen">' + bar +
     '<div class="qwrap">' + hero(heroAsk) + rows +
     '<div class="qfoot"><span>' + esc(foot) + '</span>' +
-    '<span class="qfoothint">turn dial for the next one</span></div>' +
+    '<span class="qfoothint">turn dial or swipe for the next one</span></div>' +
     '</div></div>';
 }
 
