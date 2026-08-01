@@ -1,4 +1,4 @@
-import { esc } from './helpers.js';
+import { esc, isDestructive } from './helpers.js';
 import { now } from '../clock.js';
 
 // Fullscreen prompt view — the focused answer screen, opened from a session or
@@ -68,11 +68,21 @@ function renderPermissionAsk(state, ask, choice) {
       '<span class="a">DISMISS</span><span class="h">back</span></div>' +
       '</div></div>';
   }
-  return '<div class="perm">' + head(ask, 'PERMISSION REQUEST') +
+  // The prompt screen honours the same two-press contract as the queue hero:
+  // a destructive command names itself in the header, and its ALLOW arms on
+  // the first press instead of firing.
+  var nasty = isDestructive(ask);
+  var armed = !!(state.armed && state.armed.id === ask.id);
+  var kind = nasty ? 'PERMISSION REQUEST · DESTRUCTIVE' : 'PERMISSION REQUEST';
+  var allowLabel = armed ? 'PRESS AGAIN' : 'ALLOW';
+  var allowHint = armed ? 'this cannot be undone'
+    : nasty ? 'press twice · destructive' : 'press dial';
+  return '<div class="perm' + (nasty ? ' destructive' : '') + '">' + head(ask, kind) +
     '<div class="cmd">' + esc(ask.summary) + '</div>' +
     '<div class="actions">' +
-    '<div class="pbtn allow' + (choice === 0 ? ' selected' : '') + '" data-action="ask-choice" data-id="0">' +
-    '<span class="a">ALLOW</span><span class="h">press dial</span></div>' +
+    '<div class="pbtn allow' + (choice === 0 ? ' selected' : '') + (armed ? ' armed' : '') +
+    '" data-action="ask-choice" data-id="0">' +
+    '<span class="a">' + allowLabel + '</span><span class="h">' + esc(allowHint) + '</span></div>' +
     '<div class="pbtn deny' + (choice === 1 ? ' selected' : '') + '" data-action="ask-choice" data-id="1">' +
     '<span class="a">DENY</span><span class="h">preset 4</span></div>' +
     '<div class="pbtn dismiss' + (choice === 2 ? ' selected' : '') + '" data-action="ask-skip">' +

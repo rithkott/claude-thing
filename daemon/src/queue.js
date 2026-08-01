@@ -29,6 +29,13 @@ export function createQueue({ emit, store, focus }) {
     return d ? d.name : 'session';
   }
 
+  // What the user asked for, carried on every ask as its intent line. Empty
+  // when no prompt has been seen; the device then omits the line.
+  function intentFor(sessionId) {
+    const s = sessionId && store.raw(sessionId);
+    return s && s.lastPrompt ? `you asked: ${s.lastPrompt}` : '';
+  }
+
   // Called from the PreToolUse hook when Claude asks a multiple-choice question.
   function onQuestion(payload) {
     const input = payload.tool_input || {};
@@ -41,6 +48,7 @@ export function createQueue({ emit, store, focus }) {
         sessionId: payload.session_id || null,
         sessionName: sessionName(payload.session_id),
         header: (q.header || 'QUESTION').toUpperCase(),
+        intent: intentFor(payload.session_id),
         question: String(q.question || '').slice(0, 300),
         options: (q.options || []).slice(0, 8).map((o) => ({
           label: String(o.label || '').slice(0, 60),
@@ -72,6 +80,7 @@ export function createQueue({ emit, store, focus }) {
       sessionId: payload.session_id || null,
       sessionName: sessionName(payload.session_id),
       header: 'PLAN',
+      intent: intentFor(payload.session_id),
       question: (heading || 'Ready to code?').replace(/^#+\s*/, '').slice(0, 300),
       options: [
         { label: 'Yes, bypass permissions', description: 'approve the plan and run without permission prompts' },

@@ -1,4 +1,4 @@
-import { esc, topbar } from './helpers.js';
+import { esc, topbar, isDestructive } from './helpers.js';
 import { now } from '../clock.js';
 
 // Triage, not a list of equals: the ask you would answer next owns the page and
@@ -25,10 +25,12 @@ export function renderQueue(state) {
 
   // While the list is open the stack rows give it their room; the footer keeps
   // the queue context alive so closing the list isn't a leap of faith.
+  // An intent line costs the hero ~27px, so the stack gives one row back.
   var rows = '';
   if (!answering) {
+    var stackMax = heroAsk.intent ? STACK_MAX - 1 : STACK_MAX;
     var rest = [];
-    for (var i = 0; i < state.asks.length && rest.length < STACK_MAX; i++) {
+    for (var i = 0; i < state.asks.length && rest.length < stackMax; i++) {
       if (state.asks[i].id !== heroAsk.id) rest.push(state.asks[i]);
     }
     for (var j = 0; j < rest.length; j++) rows += stackRow(rest[j]);
@@ -47,35 +49,45 @@ export function renderQueue(state) {
   }
 
   return '<div class="screen">' + bar +
-    '<div class="qwrap">' + hero(heroAsk, answering, state.queueChoice) + rows +
+    '<div class="qwrap">' + hero(heroAsk, answering, state.queueChoice, state.armed) + rows +
     '<div class="qfoot"><span>' + esc(foot) + '</span>' +
     '<span class="qfoothint">' + esc(hint) + '</span></div>' +
     '</div></div>';
 }
 
-function hero(a, answering, choice) {
+function hero(a, answering, choice, armed) {
   var isQuestion = a.kind === 'question';
   var kindClass = isQuestion ? ' question' : '';
+  var nasty = !isQuestion && !a.expired && isDestructive(a);
   // A question hero opens its options in place; a permission (or an expired
   // ask) still routes to the prompt screen on tap.
   var action = isQuestion && !a.expired ? 'queue-answer' : 'open-ask';
+  var kind = isQuestion ? 'QUESTION'
+    : nasty ? 'PERMISSION REQUEST · DESTRUCTIVE' : 'PERMISSION REQUEST';
+  // A command without intent is an approval made blind: what you asked for
+  // sits right under the session name, and the layout pays for the line — the
+  // name steps down and the stack loses a row (see renderQueue).
+  var intent = a.intent
+    ? '<div class="qintent">' + esc(a.intent) + '</div>' : '';
   return '<div class="qhero' + kindClass + (a.expired ? ' expired' : '') +
     (answering ? ' answering' : '') +
+    (a.intent ? ' has-intent' : '') +
+    (nasty ? ' destructive' : '') +
     '" data-action="' + action + '" data-id="' + esc(a.id) + '">' +
     '<span class="qhazard"></span>' +
     '<div class="qherobody">' +
-    '<div class="qheroline"><span class="qkind">' +
-    (isQuestion ? 'QUESTION' : 'PERMISSION REQUEST') + '</span>' +
+    '<div class="qheroline"><span class="qkind">' + kind + '</span>' +
     '<span class="qwait">' + esc(waitLabel(a)) + '</span></div>' +
     '<div class="qherosession">' + esc(a.sessionName || 'session') + '</div>' +
+    intent +
     '<div class="qherosummary">' + esc(summarize(a)) + '</div>' +
-    (answering ? heroOptions(a, choice) : heroActions(a, isQuestion)) +
+    (answering ? heroOptions(a, choice) : heroActions(a, isQuestion, nasty, armed)) +
     '</div></div>';
 }
 
 // A timed-out permission has nothing left to press: the hook response is spent,
 // so the chips are replaced by where the decision actually went.
-function heroActions(a, isQuestion) {
+function heroActions(a, isQuestion, nasty, armed) {
   if (a.expired) {
     return '<div class="qactions"><div class="qexpired">HOOK TIMED OUT — ANSWER IN TERMINAL</div></div>';
   }
@@ -85,8 +97,19 @@ function heroActions(a, isQuestion) {
       chip('answer', 'ANSWER', n + ' option' + (n === 1 ? '' : 's') + ' · press dial', true) +
       '</div>';
   }
-  return '<div class="qactions">' +
-    chip('allow', 'ALLOW', 'press dial', true) +
+  // A destructive command must not cost the same gesture as "read that file":
+  // the chip starts as an outline that says so, and the first press only arms
+  // it — filled danger, PRESS AGAIN — for a 4s window.
+  var isArmed = !!(armed && armed.id === a.id);
+  var allow;
+  if (isArmed) {
+    allow = chip('allow', 'PRESS AGAIN', 'this cannot be undone', true, ' armed');
+  } else if (nasty) {
+    allow = chip('allow', 'ALLOW', 'press twice · destructive', false, ' destructive');
+  } else {
+    allow = chip('allow', 'ALLOW', 'press dial', true);
+  }
+  return '<div class="qactions">' + allow +
     chip('deny', 'DENY', 'preset 4', false) +
     '</div>';
 }
@@ -119,8 +142,8 @@ function heroOptions(a, choice) {
   return html + '</div>';
 }
 
-function chip(action, label, hint, filled) {
-  return '<div class="qchip ' + action + (filled ? ' filled' : '') +
+function chip(action, label, hint, filled, extra) {
+  return '<div class="qchip ' + action + (filled ? ' filled' : '') + (extra || '') +
     '" data-action="queue-' + action + '">' +
     '<span class="qchiplabel">' + label + '</span>' +
     '<span class="qchiphint">' + esc(hint) + '</span></div>';

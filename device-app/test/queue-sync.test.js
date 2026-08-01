@@ -56,3 +56,13 @@ test('an unchanged list leaves the queue exactly as it was', () => {
   assert.equal(store.get().asks[0], a, 'same object, not a re-added copy');
   assert.equal(store.get().queueAnswering, true, 'an open option list is not closed for nothing');
 });
+
+test('an answer held in its undo window is not resurrected by a sync', () => {
+  const held = ask('held');
+  seed([ask('a')]);
+  store.update({ undo: { ask: held, index: 0, choice: 0, expires: Date.now() + 6000 } });
+  // the daemon still vouches for it — the decision has not been sent yet
+  store.reconcileAsks([ask('a'), held]);
+  assert.deepEqual(ids(), ['a'], 'the held card must not come back mid-undo');
+  store.update({ undo: null });
+});

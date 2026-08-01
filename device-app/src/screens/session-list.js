@@ -61,9 +61,8 @@ function tile(s, selected, state, off) {
     // overflows; see marquee() in main.js.
     '<div class="tname"><span class="tnamei" data-marquee="1">' + esc(s.name) + '</span></div>' +
     '<div class="tsub">' + esc(subline(s, state)) + '</div>' +
-    meterBlock(s) +
-    '<div class="mcol"><span class="sprite"></span>' +
-    (eff ? '<span class="elabel">' + eff + '</span>' : '') + '</div>' +
+    meterBlock(s, eff) +
+    '<span class="sprite"></span>' +
     '</div>';
 }
 
@@ -77,20 +76,24 @@ function modeChip(mode) {
   return '<span class="mode m-' + label.toLowerCase() + '">' + label + '</span>';
 }
 
-// The tile's bottom-left block: the model as a spec line, then the context
-// track. The model prints whenever a source has named one — including on ended
+// The tile's bottom-left block: model and effort merged into one spec line,
+// then the context track. Both are lean-in confirmations read once — the gait
+// already carries effort across the room — so they share a single 13px mono
+// line, which frees the sprite column of its caption and lets the mascot grow.
+// The spec line prints whenever a source has named either — including on ended
 // sessions, where there is no meter at all — and the track carries its own
 // CONTEXT NN% label inside, so no line above it is spent on a number.
 //
 // Neutral all the way up, red only near the top: a filling context window is
 // normal and must not read as an alarm until it is actually close to
 // compacting. Absent when the daemon can't work out the fraction.
-function meterBlock(s) {
+function meterBlock(s, eff) {
   var model = (s.model || '').replace(/^claude-/, '');
-  if (!model && s.context == null) return '';
+  var spec = model && eff ? model + '  ·  ' + eff : (model || eff || '');
+  if (!spec && s.context == null) return '';
   var hot = s.context != null && s.context >= 0.8 ? ' hot' : '';
   var html = '<div class="ctx' + hot + '">';
-  if (model) html += '<div class="tmodel">' + esc(model) + '</div>';
+  if (spec) html += '<div class="tspec">' + esc(spec) + '</div>';
   if (s.context != null) {
     var pct = Math.max(0, Math.min(1, s.context));
     // The label is drawn twice: light ink on the bare track underneath, and a

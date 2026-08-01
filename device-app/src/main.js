@@ -10,10 +10,19 @@ import { renderUsage } from './screens/usage.js';
 import { renderAmbient } from './screens/ambient.js';
 import * as mascot from './mascot.js';
 import { renderBluetooth, btMenuActions, renderBtPairing } from './screens/bluetooth.js';
+import { isDestructive } from './screens/helpers.js';
 
 var app = document.getElementById('app');
 var banner = document.getElementById('banner');
 var toastEl = document.getElementById('toast');
+var edgeEl = document.getElementById('edge');
+
+// The device drives itself: rest DRIFT_MS after the queue empties, arm a
+// destructive allow for ARM_MS, hold every queue answer UNDO_MS before it is
+// actually sent so back can take it back.
+var DRIFT_MS = 5000;
+var ARM_MS = 4000;
+var UNDO_MS = 6000;
 
 // ---- routing (hash-based; ServeDir fallback makes path routing impossible) --
 
@@ -73,6 +82,11 @@ function render() {
     if (isList) marquee();
   }
   banner.className = state.daemonConnected ? 'banner' : 'banner show';
+  // A blocked session is visible from every screen: the panel edge pulses warn
+  // whenever anything waits. Suppressed on the queue and the prompt, where you
+  // are already looking at it.
+  var blocked = state.asks.length > 0 && r.name !== 'queue' && r.name !== 'ask';
+  edgeEl.className = blocked ? 'edge show' : 'edge';
 }
 
 // Store writes arrive in bursts — one daemon event can land several updates,
@@ -140,11 +154,44 @@ setInterval(function () {
   if (r.name === 'ambient' || r.name === 'list' || r.name === 'queue') render();
 }, 15000);
 
+// ---- the device drives itself -----------------------------------------------
+// It sits in peripheral vision — it should present, not be operated. Once the
+// queue is answered dry it waits DRIFT_MS and puts itself away; surface()
+// below wakes it straight back to the queue when the daemon needs a person.
+var driftAt = null;
+
+function driftTick(nowMs) {
+  var r = route().name;
+  if (store.get().asks.length || (r !== 'queue' && r !== 'list')) {
+    driftAt = null;
+    return;
+  }
+  if (driftAt === null) driftAt = nowMs + DRIFT_MS;
+  else if (nowMs >= driftAt) {
+    driftAt = null;
+    nav('#/ambient');
+  }
+}
+
+// Any touch of the controls proves a person is operating the device; drifting
+// home mid-interaction would pull the screen out from under their finger.
+function noteInput() {
+  if (driftAt !== null) driftAt = Date.now() + DRIFT_MS;
+}
+var INPUT_ACTIONS = ['dial', 'select', 'back', 'deny', 'tap',
+  'page-sessions', 'page-queue', 'page-usage', 'ambient', 'bt-manage'];
+for (var ia = 0; ia < INPUT_ACTIONS.length; ia++) onAction(INPUT_ACTIONS[ia], noteInput);
+
 // The prompt screen acts against a live deadline, so its countdown must tick
 // on its own clock. It used to ride the daemon's event stream — which now goes
 // quiet when nothing changes, exactly when a lone pending ask would sit
-// frozen at "45s left" until the 30s heartbeat.
+// frozen at "45s left" until the 30s heartbeat. The same tick ages out an
+// armed destructive allow and drives the drift home.
 setInterval(function () {
+  var nowMs = Date.now();
+  driftTick(nowMs);
+  var st = store.get();
+  if (st.armed && nowMs > st.armed.expires) store.update({ armed: null });
   if (route().name === 'ask') render();
 }, 1000);
 
@@ -212,7 +259,7 @@ onAction('select', function () {
     var a = state.asks[Math.min(state.queueIndex, state.asks.length - 1)];
     if (!a) return;
     if (a.expired) openAsk(a.id);
-    else if (a.kind === 'permission') answerFromQueue(a, 0);
+    else if (a.kind === 'permission') allowHero(a);
     else if (!state.queueAnswering) store.update({ queueAnswering: true, queueChoice: 0 });
     else answerFromQueue(a, state.queueChoice);
   } else if (r.name === 'list') {
@@ -230,7 +277,9 @@ onAction('select', function () {
       if (target) store.update({ btMenu: target.address, btMenuIndex: 0 });
     }
   } else if (r.name === 'ambient') {
-    nav('#/list');
+    // When blocked, the press goes where the work is; the session list is the
+    // manual route.
+    nav(state.asks.length ? '#/queue' : '#/list');
   }
 });
 
@@ -238,6 +287,9 @@ onAction('back', function () {
   var r = route();
   // pairing overlay sits on top of everything, so back peels it off first
   if (store.get().btPairing) return store.update({ btPairing: null });
+  // Back inside the undo window takes the answer back: the ask returns to its
+  // place in the queue and nothing was ever sent.
+  if (restoreUndo()) return;
   if (r.name === 'ask') skipAsk(r.arg);
   else if (r.name === 'session') nav('#/list');
   // Back closes the open option list first and returns to queue browsing;
@@ -270,7 +322,15 @@ onAction('deny', function () {
   if (r.name === 'queue') {
     var state = store.get();
     var hero = state.asks[Math.min(state.queueIndex, state.asks.length - 1)];
-    if (hero && hero.kind === 'permission' && !hero.expired) answerFromQueue(hero, 1);
+    if (!hero) return;
+    // An expired ask was answered in the terminal; deny is how the dead slot
+    // is dismissed without pretending an answer went anywhere.
+    if (hero.expired) {
+      store.resolveAsk(hero.id);
+      toast('DISMISSED');
+      return;
+    }
+    if (hero.kind === 'permission') answerFromQueue(hero, 1);
   }
 });
 
@@ -377,7 +437,7 @@ onAction('tap', function (t) {
   else if (t.action === 'open-ask' && t.id) openAsk(t.id);
   else if (t.action === 'ask-choice') answerAsk(route().arg, Number(t.id));
   else if (t.action === 'ask-skip') skipAsk(route().arg);
-  else if (t.action === 'queue-allow' && hero) answerFromQueue(hero, 0);
+  else if (t.action === 'queue-allow' && hero) allowHero(hero);
   else if (t.action === 'queue-deny' && hero) answerFromQueue(hero, 1);
   // a question opens its option list inside the hero, not the prompt screen
   else if (t.action === 'queue-answer' && hero) {
@@ -419,6 +479,36 @@ function openAsk(id) {
   nav('#/ask/' + id);
 }
 
+// The wire send, taking the ask itself: by the time a held queue answer goes
+// out, the card is already off the local list, so a lookup by id would fail.
+function sendAnswer(ask, choice) {
+  if (ask.kind === 'question') {
+    var option = (ask.options || [])[choice];
+    if (!option) return;
+    ws.request('claude.question.answer', { id: ask.id, optionIndex: choice })
+      .then(function (res) {
+        toast(questionToast(res, choice));
+        // The daemon has no such ask — answered elsewhere, or restarted out
+        // from under this card. Either way it is not ours to press again.
+        // Only tidy up if the card is still showing (prompt-screen path).
+        if (/already resolved/i.test(String(res.reason || '')) && store.getAsk(ask.id)) {
+          store.resolveAsk(ask.id);
+          nextAskOrBack();
+        }
+      })
+      .catch(function () { toast('SEND FAILED'); });
+    return;
+  }
+  var decision = choice === 0 ? 'allow' : 'deny';
+  ws.request('claude.permission.answer', { requestId: ask.id, decision: decision })
+    .then(function (res) {
+      if (!res.accepted) toast('ALREADY ANSWERED');
+    })
+    .catch(function () { toast('SEND FAILED'); });
+}
+
+// Prompt-screen answer: immediate send. The destructive two-press contract
+// still applies — the first press on ALLOW only arms it.
 function answerAsk(id, choice) {
   var ask = store.getAsk(id);
   if (!ask) return;
@@ -428,41 +518,89 @@ function answerAsk(id, choice) {
   // daemon can still raise that window. So only permissions are dismissed.
   if (ask.expired && ask.kind !== 'question') return skipAsk(id);
 
-  if (ask.kind === 'question') {
-    var option = (ask.options || [])[choice];
-    if (!option) return;
-    ws.request('claude.question.answer', { id: id, optionIndex: choice })
-      .then(function (res) {
-        toast(questionToast(res, choice));
-        // The daemon has no such ask — answered elsewhere, or restarted out
-        // from under this card. Either way it is not ours to press again.
-        if (/already resolved/i.test(String(res.reason || ''))) {
-          store.resolveAsk(id);
-          nextAskOrBack();
-        }
-      })
-      .catch(function () { toast('SEND FAILED'); });
-    return;
-  }
+  if (ask.kind === 'question') return sendAnswer(ask, choice);
 
   if (choice === 2) return skipAsk(id);
-  var decision = choice === 0 ? 'allow' : 'deny';
-  ws.request('claude.permission.answer', { requestId: id, decision: decision })
-    .then(function (res) {
-      if (!res.accepted) toast('ALREADY ANSWERED');
-    })
-    .catch(function () { toast('SEND FAILED'); });
+  if (choice === 0 && isDestructive(ask)) {
+    var st = store.get();
+    if (!(st.armed && st.armed.id === ask.id)) {
+      return store.update({ armed: { id: ask.id, expires: Date.now() + ARM_MS } });
+    }
+    store.update({ armed: null });
+  }
+  sendAnswer(ask, choice);
+}
+
+// Allow from the queue hero. A destructive command arms on the first press —
+// the chip fills danger and asks again — and only fires on the second.
+function allowHero(hero) {
+  var st = store.get();
+  if (isDestructive(hero) && !(st.armed && st.armed.id === hero.id)) {
+    store.update({ armed: { id: hero.id, expires: Date.now() + ARM_MS } });
+    return;
+  }
+  answerFromQueue(hero, 0);
 }
 
 // Answering from the queue must leave you on the queue with the next ask
 // promoted into the hero — not fling you into the next item's prompt screen.
 // returnTo is what nextAskOrBack() checks to suppress that jump.
+//
+// The answer itself is held for UNDO_MS before it is sent, so back can take
+// it back: the card leaves the list at once (the next ask promotes), the
+// toast says the answer is undoable, and only when the window closes does the
+// decision actually go to the daemon.
+var undoTimer = null;
+
 function answerFromQueue(ask, choice) {
   returnTo = '#/queue';
-  if (ask.kind === 'permission') toast(choice === 0 ? 'ALLOW' : 'DENY');
-  // the question toast comes from answerAsk once the daemon says how far it got
-  store.update({ queueAnswering: false, queueChoice: 0 });
-  answerAsk(ask.id, choice);
+  flushUndo();   // at most one answer in flight; an older one goes out now
+  var index = indexOfAsk(ask.id);
+  store.resolveAsk(ask.id);
+  undoTimer = setTimeout(flushUndo, UNDO_MS);
+  store.update({
+    undo: { ask: ask, index: index, choice: choice, expires: Date.now() + UNDO_MS },
+    armed: null,
+    queueAnswering: false,
+    queueChoice: 0,
+  });
+  var verb = ask.kind === 'question' ? 'ANSWERED' : choice === 0 ? 'ALLOW' : 'DENY';
+  toast(verb + ' · BACK TO UNDO');
+}
+
+function clearUndo() {
+  if (undoTimer) { clearTimeout(undoTimer); undoTimer = null; }
+  var u = store.get().undo;
+  if (u) store.update({ undo: null });
+  return u;
+}
+
+function flushUndo() {
+  var u = clearUndo();
+  if (u) sendAnswer(u.ask, u.choice);
+}
+
+// The daemon resolved the held ask itself — answered in the terminal, or the
+// hook timed out. Nothing to send, nothing on screen to update.
+function cancelUndo(id) {
+  var u = store.get().undo;
+  if (!u || u.ask.id !== id) return false;
+  clearUndo();
+  return true;
+}
+
+function restoreUndo() {
+  var u = store.get().undo;
+  if (!u) return false;
+  clearUndo();
+  var asks = store.get().asks.slice();
+  var at = Math.min(u.index, asks.length);
+  asks.splice(at, 0, u.ask);
+  driftAt = null;
+  store.update({ asks: asks, undo: null, queueIndex: at, queueAnswering: false, queueChoice: 0 });
+  toast('RESTORED');
+  nav('#/queue');
+  return true;
 }
 
 // A question can only be answered by typing into its terminal, so say exactly
@@ -509,27 +647,33 @@ ws.on('claude.sessions.update', function (snap) { store.applySnapshot(snap); });
 ws.on('claude.session.update', function (d) { store.applyDetail(d); });
 ws.on('claude.usage.update', function (u) { store.update({ usage: u }); });
 
+// Every ask surfaces on the queue — the screen where everything is answerable
+// in place. The device only moves itself when it was resting: from ambient it
+// wakes straight to the queue with a NEEDS YOU toast. On any other screen the
+// pulsing panel edge and the topbar count carry the alert without yanking the
+// page out from under the user; the full-screen prompt is only ever entered
+// deliberately.
 function surface(ask) {
   store.pushAsk(ask);
   var r = route();
-  // A question is answered inside the queue hero, so it surfaces there —
-  // promoted, ready for a press — never on the full-screen prompt.
-  if (ask.kind === 'question') {
-    if (r.name === 'ask') return render();   // don't yank a live permission
-    var st = store.get();
-    if (r.name === 'queue' && st.queueAnswering) return;   // mid-answer: it queues up behind
-    if (r.name !== 'queue') returnTo = window.location.hash || '#/list';
+  if (r.name === 'ask') return render();   // don't yank a live prompt; the counter updates
+  if (r.name === 'ambient') {
     store.update({ queueIndex: indexOfAsk(ask.id) });
+    toast('NEEDS YOU');
+    returnTo = '#/list';
     nav('#/queue');
     return;
   }
-  if (r.name !== 'ask') {
-    returnTo = window.location.hash || '#/list';
-    askChoice = 0;
-    nav('#/ask/' + ask.id);
-  } else {
-    render();   // update the queue counter behind the current prompt
+  if (r.name === 'queue') {
+    var st = store.get();
+    // A question promotes to hero, ready for a press — unless the user is
+    // mid-answer on another one, in which case it queues up behind.
+    if (ask.kind === 'question' && !st.queueAnswering) {
+      store.update({ queueIndex: indexOfAsk(ask.id) });
+    }
+    return;
   }
+  render();   // edge + topbar count
 }
 
 ws.on('claude.permission.request', function (p) {
@@ -539,6 +683,7 @@ ws.on('claude.permission.request', function (p) {
     sessionId: p.sessionId,
     tool: p.tool,
     summary: p.summary,
+    intent: p.intent || '',
     createdTs: p.createdTs,
     timeoutMs: p.timeoutMs,
   });
@@ -551,6 +696,7 @@ ws.on('claude.question.request', function (q) {
     sessionId: q.sessionId,
     header: q.header,
     question: q.question,
+    intent: q.intent || '',
     options: q.options || [],
     multiSelect: !!q.multiSelect,
     createdTs: q.createdTs,
@@ -558,6 +704,9 @@ ws.on('claude.question.request', function (q) {
 });
 
 function onResolved(id, resolution) {
+  // An answer held in its undo window: the daemon beat us to it, so there is
+  // nothing to send and nothing on screen to update.
+  if (cancelUndo(id)) return;
   var r = route();
   var wasCurrent = r.name === 'ask' && r.arg === id;
   // A timeout is the one resolution nobody chose: the hook gave up and the
@@ -658,10 +807,11 @@ function syncQueue(jumpIfIdle) {
   ws.request('claude.queue.list', {}).then(function (res) {
     var asks = res.asks || [];
     store.reconcileAsks(asks);
+    // The queue is where everything is answerable in place, so that is where
+    // a fresh connection with work waiting lands.
     if (jumpIfIdle && asks.length && route().name === 'list') {
       returnTo = '#/list';
-      if (asks[0].kind === 'question') nav('#/queue');
-      else nav('#/ask/' + asks[0].id);
+      nav('#/queue');
     }
   }).catch(function () {});
 }

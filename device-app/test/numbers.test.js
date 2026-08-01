@@ -29,9 +29,10 @@ test('a coerced snapshot renders counts, not booleans', () => {
   assert.equal(snap.sessions[0].pendingPermission, true);
   assert.equal(snap.sessions[0].ended, false);
 
-  const html = renderAmbient({ ...snap, selectedIndex: 0 });
+  // the blocked line counts asks, so hand ambient one waiting ask
+  const html = renderAmbient({ ...snap, selectedIndex: 0, asks: [{ id: 'k' }] });
   assert.match(html, /1 WORKING/);
-  assert.match(html, /1 NEED YOU/);
+  assert.match(html, /1 NEEDS YOU/);
   assert.ok(!html.includes('true'), 'no boolean may reach the screen');
 });
 
