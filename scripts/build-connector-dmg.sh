@@ -110,8 +110,11 @@ patch(
 patch(
     "Services/SessionStore.swift",
     "    private func readKeychain(account: String) -> Data? {",
+    "    // Defaults to on: this build exists to relay Claude Code, so a fresh\n"
+    "    // install should relay without a trip to Settings. object(forKey:) is\n"
+    "    // what separates \"never set\" from \"set to false\"; bool(forKey:) can't.\n"
     "    var claudeRelayEnabled: Bool {\n"
-    "        get { UserDefaults.standard.bool(forKey: claudeRelayEnabledKey) }\n"
+    "        get { UserDefaults.standard.object(forKey: claudeRelayEnabledKey) as? Bool ?? true }\n"
     "        set { UserDefaults.standard.set(newValue, forKey: claudeRelayEnabledKey) }\n"
     "    }\n\n"
     "    private func readKeychain(account: String) -> Data? {",

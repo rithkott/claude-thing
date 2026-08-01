@@ -218,13 +218,16 @@ the next 10 s tick.
 
 ## 4. `Services/SessionStore.swift` + Settings UI
 
-Add a persisted toggle following the `systemMediaEnabled` pattern:
+Add a persisted toggle following the `systemMediaEnabled` pattern, except the
+relay defaults to on — the whole point of this build is Claude mode, so an
+untouched install should relay. `object(forKey:)` distinguishes "never set"
+from "set to false", which `bool(forKey:)` cannot:
 
 ```swift
     private let claudeRelayEnabledKey = "nocturne.claudeRelayEnabled"
 
     var claudeRelayEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: claudeRelayEnabledKey) }
+        get { UserDefaults.standard.object(forKey: claudeRelayEnabledKey) as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: claudeRelayEnabledKey) }
     }
 ```
