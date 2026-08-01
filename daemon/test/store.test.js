@@ -90,6 +90,41 @@ test('snapshot is newest-first and unbounded by default', () => {
   assert.equal(snap.sessions[0].id, 's29', 'most recent activity first');
 });
 
+// A live session that keeps working must not keep jumping the queue: the list
+// is something you aim a finger at, so live tiles hold their wake order.
+test('a working session never overtakes another working session', () => {
+  const store = createStore();
+  store.touch('a', { name: 'a' });
+  store.snapshot();                       // a wakes first
+  store.touch('b', { name: 'b' });
+  store.snapshot();                       // b wakes second
+  store.touch('b', { name: 'b' });        // ...and keeps working
+  const ids = store.snapshot().sessions.map((s) => s.id);
+  assert.deepEqual(ids, ['a', 'b'], 'later activity does not reorder live sessions');
+});
+
+test('a waking session overtakes idle sessions only', () => {
+  const store = createStore();
+  store.touch('live', { name: 'live' });
+  store.upsert('idle', { name: 'idle', lastActivityTs: Date.now() - 60 * ONE_SEC });
+  store.upsert('waking', { name: 'waking', lastActivityTs: Date.now() - 60 * ONE_SEC });
+  store.snapshot();
+  store.touch('waking');
+  const ids = store.snapshot().sessions.map((s) => s.id);
+  assert.deepEqual(ids, ['live', 'waking', 'idle'], 'past the idle one, behind the live one');
+});
+
+test('a session that goes idle and wakes again re-enters at the back of the live group', () => {
+  const store = createStore();
+  store.touch('a', { name: 'a' });
+  store.touch('b', { name: 'b' });
+  store.snapshot();
+  store.upsert('a', { lastActivityTs: Date.now() - 60 * ONE_SEC });
+  store.snapshot();                       // a drops to idle, losing its stamp
+  store.touch('a');
+  assert.deepEqual(store.snapshot().sessions.map((s) => s.id), ['b', 'a']);
+});
+
 test('snapshot honours an explicit limit for constrained transports', () => {
   const store = createStore();
   for (let i = 0; i < 30; i++) store.upsert(`s${i}`, { name: `s${i}`, lastActivityTs: 1000 + i });
