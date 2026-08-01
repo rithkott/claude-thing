@@ -94,16 +94,27 @@ function heroActions(a, isQuestion) {
 // All options at once, no 3-wide window: the rows flex to share whatever
 // height the (shrunken) name and question leave, so the whole decision is on
 // screen before the first dial turn.
+//
+// Unselected rows stay one clipped line each; the row under the cursor grows
+// and stacks its label over its description with both wrapping, so the text
+// you are about to commit to is read in full, not guessed from an ellipsis.
+// Every dial turn re-renders the list, so the markup can differ per row.
 function heroOptions(a, choice) {
   var opts = a.options || [];
   var html = '<div class="qopts">';
   for (var i = 0; i < opts.length; i++) {
-    html += '<div class="qopt' + (i === choice ? ' selected' : '') +
-      '" data-action="queue-choice" data-id="' + i + '">' +
-      '<span class="qnum">' + (i + 1) + '</span>' +
-      '<span class="qlabel">' + esc(opts[i].label) + '</span>' +
-      (opts[i].description ? '<span class="qdesc">' + esc(opts[i].description) + '</span>' : '') +
-      '</div>';
+    var num = '<span class="qnum">' + (i + 1) + '</span>';
+    var desc = opts[i].description
+      ? '<span class="qdesc">' + esc(opts[i].description) + '</span>' : '';
+    if (i === choice) {
+      html += '<div class="qopt selected" data-action="queue-choice" data-id="' + i + '">' +
+        num + '<div class="qtext"><span class="qlabel">' + esc(opts[i].label) + '</span>' +
+        desc + '</div></div>';
+    } else {
+      html += '<div class="qopt" data-action="queue-choice" data-id="' + i + '">' +
+        num + '<span class="qlabel">' + esc(opts[i].label) + '</span>' + desc +
+        '</div>';
+    }
   }
   return html + '</div>';
 }
