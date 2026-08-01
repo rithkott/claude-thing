@@ -34,12 +34,15 @@ The emulator reproduces the device runtime exactly:
 
 Everything is drawn at true physical scale: the 3.97" 800×480 panel is 86.4mm
 wide → **9.259 px/mm** (`--mm` in `shell/faceplate.css`, mirrored by
-`FACE_W/H` in `src/config.js`). Device face 124×64mm → 1148×593px; dial ⌀48mm
-→ ⌀445px. The dial **overlaps the screen's right edge by ~163px — on purpose**:
-an 86.4mm panel plus a 48mm dial cannot fit side-by-side on a 124mm face, and
-the real unit looks exactly like this (the stock UI keeps critical content away
-from the far right). Do not "fix" the overlap. Clicks in the dial's square
-corners fall through to the screen (`clip-path` hit-testing).
+`FACE_W/H` in `src/config.js`). Proportions are measured off Spotify's product
+photography: device face 117×64mm → 1083×593px (the quoted 124mm width
+includes the dial overhang and logo tag); dial is a **plain smooth ⌀36mm disc
+(⌀333px, no ridges or index dot — rotation reads from its sheen)** sitting
+upper-right ~5mm from the top edge, its center ~9mm in from the right edge, so
+it **overhangs the face's right side by ~8.5mm and just kisses the display's
+right edge — on purpose, like the real unit**. Back button ⌀10.6mm below it
+near the corner. Clicks in the dial's square corners fall through to the
+screen (`clip-path` hit-testing).
 
 ## Usage
 

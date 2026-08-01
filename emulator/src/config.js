@@ -82,10 +82,12 @@ export const EMULATOR_URL = `http://${HOST}:${HTTP_PORT}/__emulator__/`;
 // emulated screen should never look sharper than the real LCD).
 //
 // Faceplate geometry is true to hardware: the 3.97" 800×480 panel is 86.4mm
-// wide, giving 9.259 px/mm, and the 124×64mm device face scales to 1148×593px
-// (must match --mm in shell/faceplate.css). Window = face + stage margins +
-// top-button overhang + status strip.
-export const FACE_W = 1148;
+// wide, giving 9.259 px/mm; the 117×64mm device face scales to 1083×593px and
+// the ⌀36mm dial overhangs the face's right edge by ~8.5mm (~79px), as on the
+// real unit (must match --mm math in shell/faceplate.css). Window = face +
+// dial overhang + stage margins + top-button overhang + status strip.
+export const FACE_W = 1083;
 export const FACE_H = 593;
-export const WINDOW_W = FACE_W + 48;
+export const DIAL_OVERHANG = 79;
+export const WINDOW_W = FACE_W + DIAL_OVERHANG + 48;
 export const WINDOW_H = FACE_H + 118;
