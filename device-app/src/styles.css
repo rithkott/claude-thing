@@ -61,6 +61,10 @@ html, body {
   cursor: none;
   user-select: none;
   -webkit-user-select: none;
+  /* The app owns every touch: drags are read as dial ticks by input.js, so the
+     browser must not also pan, rubber-band or double-tap-zoom the page. */
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #app { width: 800px; height: 480px; }

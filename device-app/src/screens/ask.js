@@ -100,7 +100,7 @@ function renderQuestion(state, ask, choice) {
       '</div></div>';
   }
   var more = options.length > 3
-    ? '<div class="qmore">' + (choice + 1) + ' / ' + options.length + ' · turn dial for more</div>'
+    ? '<div class="qmore">' + (choice + 1) + ' / ' + options.length + ' · turn dial or swipe for more</div>'
     : '';
 
   return '<div class="perm question">' + head(ask, esc(ask.header || 'QUESTION'), ' coral') +
