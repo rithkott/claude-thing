@@ -24,3 +24,4 @@ Claimed release numbers. One row per merge to `main`. See CLAUDE.md → Release 
 | r18 | 2026-08-01 | perf-event-flood | Device stops freezing under many sessions: daemon event flood debounced at the source, device repaints only when the screen actually changes |
 | r19 | 2026-08-01 | duplicate-question-alert | One alert per question: a multiple-choice ask stops also raising a permission card with a raw JSON body |
 | r20 | 2026-08-01 | relay-coalesce | Bluetooth relay coalesces state frames, offscreen tiles stop animating, faceplate stops double-parsing broadcasts |
+| r21 | 2026-08-01 | relay-default | Claude Code relay toggle is on by default in a fresh DMG install |
