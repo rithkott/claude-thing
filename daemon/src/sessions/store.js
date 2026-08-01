@@ -46,6 +46,12 @@ export function createStore() {
       // device draws no meter rather than a meter against a guess.
       context: contextFraction(s.model, s.contextTokens),
       pendingPermission: !!s.pendingPermission,
+      // Which permission mode the window is in: plan / bypassPermissions /
+      // acceptEdits / auto / default. null until something says, and the
+      // device draws no badge rather than guessing — older transcripts carry
+      // no mode record at all, and "manual" is the wrong guess for a session
+      // running with permissions skipped.
+      permissionMode: s.permissionMode || null,
       // idle means "nothing recently"; ended means the session is over. The
       // device labels them differently, so both have to travel.
       ended: !!s.ended,

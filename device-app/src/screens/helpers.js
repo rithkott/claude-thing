@@ -24,6 +24,23 @@ export function stateLabel(state, ended) {
   return { busy: 'WORKING', attention: 'ATTENTION', celebrate: 'DONE' }[state] || 'IDLE';
 }
 
+// Permission mode, as the daemon reports it, shortened to something that fits
+// a tile header. `auto` and `acceptEdits` stay distinct: they are two different
+// modes, and the newer name replacing the older one is not a reason to draw
+// them the same. Anything unrecognized — including a session no source has
+// reported a mode for — returns null and the tile draws no badge.
+var MODE_LABELS = {
+  plan: 'PLAN',
+  bypassPermissions: 'BYPASS',
+  acceptEdits: 'EDITS',
+  auto: 'AUTO',
+  default: 'MANUAL',
+};
+
+export function modeLabel(mode) {
+  return MODE_LABELS[mode] || null;
+}
+
 export function topbar(title, connected, count) {
   return '<div class="topbar"><span class="mark"></span>' +
     '<span class="title">' + esc(title) + '</span>' +

@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { esc, fmtTokens, fmtDuration, stateLabel } from '../src/screens/helpers.js';
+import { esc, fmtTokens, fmtDuration, stateLabel, modeLabel } from '../src/screens/helpers.js';
 import { fmtClock, setTzOffset, setServerNow, now, resetClock } from '../src/clock.js';
 import { renderList } from '../src/screens/session-list.js';
 import { renderQueue } from '../src/screens/queue.js';
@@ -123,6 +123,35 @@ test('a pending permission is flagged on its tile', () => {
   const html = renderList(baseState({ sessions: [session({ pendingPermission: true })] }));
   assert.match(html, /class="badge"/);
   assert.match(html, /needs your answer/);
+});
+
+test('each tile says which permission mode its window is in', () => {
+  const modes = {
+    plan: 'PLAN', bypassPermissions: 'BYPASS', acceptEdits: 'EDITS',
+    auto: 'AUTO', default: 'MANUAL',
+  };
+  for (const [mode, label] of Object.entries(modes)) {
+    assert.equal(modeLabel(mode), label);
+    const html = renderList(baseState({ sessions: [session({ permissionMode: mode })] }));
+    assert.ok(html.includes('>' + label + '<'), `${mode} tile must read ${label}`);
+    assert.ok(html.includes('m-' + label.toLowerCase()), `${mode} tile needs its own class`);
+  }
+});
+
+test('an unreported or unrecognised mode draws no badge rather than a guess', () => {
+  assert.equal(modeLabel(undefined), null);
+  assert.equal(modeLabel('someFutureMode'), null);
+  const html = renderList(baseState({ sessions: [session({ permissionMode: 'someFutureMode' })] }));
+  assert.ok(!html.includes('class="mode'), 'no badge for a mode we cannot name');
+  assert.ok(!html.includes('someFutureMode'), 'and nothing unvetted reaches the markup');
+});
+
+test('mode and permission badges share a tile without fighting for the corner', () => {
+  const html = renderList(baseState({
+    sessions: [session({ permissionMode: 'plan', pendingPermission: true })],
+  }));
+  assert.ok(html.indexOf('class="mode') < html.indexOf('class="badge"'),
+    'the mode badge comes first so the CSS sibling rule spaces the alert');
 });
 
 test('queue lists both kinds with their own accent and wait label', () => {

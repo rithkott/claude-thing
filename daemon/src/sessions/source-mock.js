@@ -33,6 +33,9 @@ export function startMockSource({ store, permissionBridge, queue }) {
       contextTokens: Math.round([0.34, 0.62, 0.41, 0.88, 0.22, 0.55, 0.13, 0.71, 0.09][i % 9] * 1_000_000),
       lastMessage: 'Initialized mock session.',
       lastActivityTs: Date.now() - i * 60_000,
+      // Every mode the badge knows, plus one session with none, so dev sees
+      // the whole set — including the tile that draws no badge at all.
+      permissionMode: ['plan', 'bypassPermissions', 'auto', 'default', 'acceptEdits', null][i % 6],
     });
     return id;
   });

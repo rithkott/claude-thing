@@ -221,6 +221,26 @@ html, body {
 .tile.state-attention .slabel { color: var(--warn); }
 .tile.state-celebrate .slabel { color: var(--done); }
 
+/* Permission mode, engraved into the header rail opposite the state label.
+   Bypass is the one that changes what an unattended session can do to the
+   machine, so it alone reads as a warning; plan and the auto-accept modes are
+   quiet, and manual is quieter still. */
+.tile .mode {
+  margin-left: auto;
+  padding: 0 8px;
+  border: 2px solid var(--fainter);
+  border-radius: 5px;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.14em;
+  line-height: 24px;
+  color: var(--muted);
+}
+.tile .mode.m-plan { border-color: var(--accent); color: var(--accent); }
+.tile .mode.m-bypass { border-color: var(--danger); color: var(--danger); }
+.tile .mode.m-auto,
+.tile .mode.m-edits { border-color: var(--ok); color: var(--ok); }
+
 .tile .badge {
   margin-left: auto;
   width: 28px;
@@ -233,6 +253,9 @@ html, body {
   line-height: 28px;
   text-align: center;
 }
+/* Two auto margins would split the slack between them and centre the pair;
+   once the mode badge owns the push, the alert only needs a gap. */
+.tile .mode + .badge { margin-left: 8px; }
 
 /* The name gets the tile's whole width; only names that actually overflow
    scroll, measured after paint rather than guessed from a character count. */
