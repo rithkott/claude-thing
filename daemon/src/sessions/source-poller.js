@@ -303,7 +303,14 @@ export function startPollerSource({ store }) {
     });
   }
 
+  // A listing is a whole Claude Code boot and can outlive the poll interval.
+  // Firing the next one anyway stacked heavy boots on top of each other and
+  // the Mac's load spike showed up on the device as relay lag. One at a time.
+  let inFlight = false;
+
   function poll() {
+    if (inFlight) return;
+    inFlight = true;
     // disableAllHooks matters as much as the listing itself: `claude agents`
     // boots a Claude Code process, which sometimes registers a session and
     // fires SessionEnd on exit. With the daemon's own cwd on the payload, that
@@ -311,6 +318,7 @@ export function startPollerSource({ store }) {
     // the daemon polling itself into its own grid, three seconds at a time.
     execFile('claude', ['--settings', '{"disableAllHooks":true}', 'agents', '--json'], { timeout: 10_000 }, (err, stdout) => {
       if (err) {
+        inFlight = false;
         if (!warned) {
           warned = true;
           log('PL', `claude agents --json unavailable (${err.message.split('\n')[0]}) — relying on hooks only`);
@@ -319,6 +327,7 @@ export function startPollerSource({ store }) {
       }
       const list = parseListing(stdout);
       if (!list) {
+        inFlight = false;
         // A failed poll says nothing about who is alive; it must not count
         // against anyone. Skip reconciling entirely.
         if (!warned) {
@@ -329,7 +338,13 @@ export function startPollerSource({ store }) {
       }
       warned = false;
 
-      forkParents((parents) => reconcile(list, parents, readParkedWindows()));
+      forkParents((parents) => {
+        try {
+          reconcile(list, parents, readParkedWindows());
+        } finally {
+          inFlight = false;
+        }
+      });
     });
   }
 

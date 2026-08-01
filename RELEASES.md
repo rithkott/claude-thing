@@ -21,3 +21,4 @@ Claimed release numbers. One row per merge to `main`. See CLAUDE.md → Release 
 | r15 | 2026-07-31 | usage-state-flap | Usage screen stops flipping between a real figure and a stale lower one, and survives a daemon restart |
 | r16 | 2026-07-31 | bt-menu-claude-mode | Bluetooth management without leaving Claude mode: hold the settings key for pairing, paired devices, and per-device actions |
 | r17 | 2026-07-31 | session-order | Session list stops reshuffling: a working session only moves past idle ones, never past another working one |
+| r18 | 2026-08-01 | perf-event-flood | Device stops freezing under many sessions: daemon event flood debounced at the source, device repaints only when the screen actually changes |

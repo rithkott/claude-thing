@@ -4,7 +4,7 @@
 
 import {
   SESSION_CAP, SNAPSHOT_DEBOUNCE_MS, BUSY_WINDOW_MS, CELEBRATE_MS,
-  AGENT_ACTIVE_TTL_MS, THINKING_TTL_MS,
+  AGENT_ACTIVE_TTL_MS, THINKING_TTL_MS, DETAIL_DEBOUNCE_MS, SNAPSHOT_HEARTBEAT_MS,
 } from '../config.js';
 import { contextFraction } from '../context-window.js';
 
@@ -14,6 +14,9 @@ export function createStore() {
   let snapshotTimer = null;
   let onSnapshot = () => {};
   let onDetail = () => {};
+  const detailTimers = new Map(); // id -> trailing debounce timer
+  let lastSnapshotKey = '';       // sessions+stats of the last emitted snapshot
+  let lastSnapshotTs = 0;
 
   // Thinking is silent: between submitting a prompt and the first tool call, and
   // between any two tool calls, nothing writes to the transcript and no hook
@@ -127,8 +130,35 @@ export function createStore() {
     if (snapshotTimer) return;
     snapshotTimer = setTimeout(() => {
       snapshotTimer = null;
-      onSnapshot(snapshot());
+      const snap = snapshot();
+      // serverNowMs is excluded from the key — it changes every time and would
+      // defeat the comparison; tzOffsetMin stays in so a DST flip still emits.
+      const key = JSON.stringify([snap.sessions, snap.stats, snap.tzOffsetMin]);
+      const now = Date.now();
+      if (key === lastSnapshotKey && now - lastSnapshotTs < SNAPSHOT_HEARTBEAT_MS) return;
+      lastSnapshotKey = key;
+      lastSnapshotTs = now;
+      onSnapshot(snap);
     }, SNAPSHOT_DEBOUNCE_MS);
+  }
+
+  // One trailing timer per session: however many writes land inside the window,
+  // one detail goes out carrying the state as of the emit. Detail is rebuilt at
+  // fire time, not capture time, so it is never stale.
+  function scheduleDetail(id) {
+    if (detailTimers.has(id)) return;
+    const t = setTimeout(() => {
+      detailTimers.delete(id);
+      const s = sessions.get(id);
+      if (s) onDetail(detail(s));
+    }, DETAIL_DEBOUNCE_MS);
+    if (t.unref) t.unref();
+    detailTimers.set(id, t);
+  }
+
+  function cancelDetail(id) {
+    const t = detailTimers.get(id);
+    if (t) { clearTimeout(t); detailTimers.delete(id); }
   }
 
   function upsert(id, fields) {
@@ -151,12 +181,16 @@ export function createStore() {
       s.thinking = false;
       s.agentActive = false;
       sessions.delete(id);
+      // The farewell goes out now, not debounced: the record is already gone,
+      // so a trailing timer would find nothing and the device would never
+      // learn the session ended.
+      cancelDetail(id);
       scheduleSnapshot();
       onDetail(detail(s));
       return s;
     }
     scheduleSnapshot();
-    onDetail(detail(s));
+    scheduleDetail(id);
     return s;
   }
 
@@ -170,6 +204,7 @@ export function createStore() {
   }
 
   function remove(id) {
+    cancelDetail(id);
     if (sessions.delete(id)) scheduleSnapshot();
   }
 

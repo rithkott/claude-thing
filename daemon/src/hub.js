@@ -12,12 +12,24 @@ export function createHub() {
   let methods = {};          // method -> async handler(params, ctx)
   let connectorStatus = null; // last bridge.status from a connector
 
+  // A relay on a slow link (bluetooth to the device) that stops draining
+  // must not buffer an unbounded backlog of state frames it will replay in
+  // slow motion once it catches up. Session snapshots and details supersede
+  // each other, so for a backed-up socket the newest one later is strictly
+  // better than every stale one now. Asks and their resolutions are NOT
+  // superseding — those always go out.
+  const MAX_BUFFERED_STATE_BYTES = 64 * 1024;
+  const SUPERSEDING = /^claude\.(sessions?|usage)\./;
+
   function emit(topic, data) {
     const frame = JSON.stringify({
       type: 'event', topic, data, server_timestamp_ms: Date.now(),
     });
+    const droppable = SUPERSEDING.test(topic);
     for (const socket of clients.keys()) {
-      if (socket.readyState === socket.OPEN) socket.send(frame);
+      if (socket.readyState !== socket.OPEN) continue;
+      if (droppable && socket.bufferedAmount > MAX_BUFFERED_STATE_BYTES) continue;
+      socket.send(frame);
     }
     // Session snapshots fire constantly and would drown the log — but they are
     // also the one event class you need when tiles misbehave, so the flag

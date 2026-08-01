@@ -31,34 +31,63 @@ function nav(hash) {
 var returnTo = '#/list';   // where to go after an ask resolves
 var askChoice = 0;         // cursor within the current ask
 
+var lastHtml = '';
+
 function render() {
   var state = store.get();
   var r = route();
+  var html;
+  var isList = false;
 
   if (r.name === 'ambient') {
-    app.innerHTML = renderAmbient(state);
+    html = renderAmbient(state);
     mascot.show();
   } else if (r.name === 'session' && r.arg) {
-    app.innerHTML = renderDetail(state, r.arg);
+    html = renderDetail(state, r.arg);
   } else if (r.name === 'queue') {
-    app.innerHTML = renderQueue(state);
+    html = renderQueue(state);
   } else if (r.name === 'usage') {
-    app.innerHTML = renderUsage(state);
+    html = renderUsage(state);
   } else if (r.name === 'bt') {
-    app.innerHTML = renderBluetooth(state);
+    html = renderBluetooth(state);
   } else if (r.name === 'ask' && r.arg) {
     var ask = store.getAsk(r.arg);
     if (!ask) return nav(returnTo);
     setQueueContext(indexOfAsk(r.arg), state.asks.length);
-    app.innerHTML = renderQueue(state) + renderAsk(state, ask, askChoice);
+    html = renderQueue(state) + renderAsk(state, ask, askChoice);
   } else {
-    app.innerHTML = renderList(state);
-    marquee();
+    html = renderList(state);
+    isList = true;
   }
   if (r.name !== 'ambient') mascot.hide();
   // pairing is a device-wide event, not a screen: show it wherever you are
-  if (state.btPairing) app.innerHTML += renderBtPairing(state.btPairing);
+  if (state.btPairing) html += renderBtPairing(state.btPairing);
+
+  // Only touch the DOM when the markup actually changed. On this CPU an
+  // innerHTML swap costs milliseconds of parse + relayout and restarts every
+  // CSS animation on screen (sprites, lamps, marquees) — so a no-op rebuild
+  // landing on each daemon event is exactly the stutter it looks like.
+  if (html !== lastHtml) {
+    lastHtml = html;
+    app.innerHTML = html;
+    if (isList) marquee();
+  }
   banner.className = state.daemonConnected ? 'banner' : 'banner show';
+}
+
+// Store writes arrive in bursts — one daemon event can land several updates,
+// and several sessions can update inside one frame. Painting more than once
+// per frame is wasted work the panel can't even show, so renders triggered by
+// data coalesce on requestAnimationFrame. Input handlers still call render()
+// directly for same-tick feedback.
+var renderQueued = false;
+function scheduleRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(function () {
+    renderQueued = false;
+    render();
+  });
 }
 
 // Session names are measured against their tile after paint, so only the ones
@@ -67,14 +96,24 @@ function render() {
 // between the two moves with every name.
 function marquee() {
   var names = app.querySelectorAll('[data-marquee]');
+  // All reads, then all writes: interleaving them forces a full relayout per
+  // tile (write invalidates, next read re-measures), which on this CPU turns
+  // one render into a dozen synchronous layouts.
+  var overflows = [];
   for (var i = 0; i < names.length; i++) {
-    var el = names[i];
-    var over = el.scrollWidth - el.parentNode.clientWidth;
+    overflows.push(names[i].scrollWidth - names[i].parentNode.clientWidth);
+  }
+  for (var k = 0; k < names.length; k++) {
+    var over = overflows[k];
     if (over <= 2) continue;
+    var el = names[k];
     // Long names get proportionally longer to read, with a dwell at each end.
     var ms = 7000 + Math.round(over * 26);
     el.style.animation = 'marquee' + ' ' + ms + 'ms linear infinite';
     el.style.setProperty('--shift', '-' + over + 'px');
+    // Compositor layers are scarce on this GPU, so only names that actually
+    // scroll get promoted (the CSS deliberately has no blanket will-change).
+    el.style.willChange = 'transform';
   }
 }
 
@@ -85,7 +124,7 @@ function indexOfAsk(id) {
 }
 
 window.addEventListener('hashchange', function () { askChoice = 0; render(); });
-store.subscribe(render);
+store.subscribe(scheduleRender);
 var EXPIRED_ASK_TTL_MS = 5 * 60 * 1000;
 setInterval(function () {
   store.sweepExpired(EXPIRED_ASK_TTL_MS);
@@ -93,6 +132,14 @@ setInterval(function () {
   // clock ticks and queue wait ages
   if (r.name === 'ambient' || r.name === 'list' || r.name === 'queue') render();
 }, 15000);
+
+// The prompt screen acts against a live deadline, so its countdown must tick
+// on its own clock. It used to ride the daemon's event stream — which now goes
+// quiet when nothing changes, exactly when a lone pending ask would sit
+// frozen at "45s left" until the 30s heartbeat.
+setInterval(function () {
+  if (route().name === 'ask') render();
+}, 1000);
 
 // ---- toast ---------------------------------------------------------------
 

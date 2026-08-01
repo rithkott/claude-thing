@@ -275,7 +275,8 @@ html, body {
   font-size: 39px;
   line-height: 1.18;
   color: var(--bone);
-  will-change: transform;
+  /* no will-change here: a layer per tile name exhausts the Amlogic's
+     compositor budget; marquee() promotes only the names that scroll */
 }
 .tile.state-idle .tnamei { color: var(--muted); }
 /* Dwell at each end so a name is readable at rest, not only mid-slide. The

@@ -40,6 +40,24 @@ export function applySnapshot(snap) {
   setTzOffset(snap.tzOffsetMin);
   var sel = state.sessions[state.selectedIndex];
   var fields = { sessions: snap.sessions || [], stats: snap.stats || state.stats };
+  // Details for sessions the daemon no longer lists would pile up forever on a
+  // device that never reboots. A pruned detail costs one refetch (openSession
+  // asks the daemon anyway); an unpruned map costs memory for every session
+  // since boot.
+  var keep = {};
+  for (var j = 0; j < fields.sessions.length; j++) {
+    var id = fields.sessions[j].id;
+    if (state.details[id]) keep[id] = state.details[id];
+  }
+  // The one screen that reads a detail after its session leaves the snapshot:
+  // a session that ends while you are looking at it. Its farewell detail says
+  // "ended" — pruning it would blank the screen to LOADING….
+  var h = (typeof window !== 'undefined' && window.location.hash) || '';
+  if (h.indexOf('#/session/') === 0) {
+    var open = h.slice('#/session/'.length);
+    if (state.details[open]) keep[open] = state.details[open];
+  }
+  fields.details = keep;
   if (sel) {
     for (var i = 0; i < fields.sessions.length; i++) {
       if (fields.sessions[i].id === sel.id) { fields.selectedIndex = i; break; }
