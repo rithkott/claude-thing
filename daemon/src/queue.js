@@ -16,10 +16,13 @@
 import crypto from 'node:crypto';
 import { log } from './log.js';
 
-const QUESTION_TTL_MS = 10 * 60_000;
+// Overridable so tests can watch an ask time out without waiting ten minutes.
+const QUESTION_TTL_MS = Number(process.env.CLAUDE_THING_QUESTION_TTL_MS ?? 10 * 60_000);
+const MAX_EXPIRED = 32;
 
 export function createQueue({ emit, store, focus }) {
   const questions = new Map();   // id -> ask
+  const expired = new Map();     // id -> ask, timed out but still on screen
 
   function sessionName(sessionId) {
     const d = store.get(sessionId);
@@ -93,17 +96,38 @@ export function createQueue({ emit, store, focus }) {
         emit('claude.question.resolved', { id, resolution: 'answered' });
       }
     }
+    // A timed-out ask the terminal has now answered is finished for good; it
+    // must not linger as something the device can still raise a window for.
+    for (const [id, ask] of expired) {
+      if (ask.sessionId === sessionId) {
+        expired.delete(id);
+        emit('claude.question.resolved', { id, resolution: 'answered' });
+      }
+    }
   }
 
+  // A timed-out question leaves the queue but stays on the device on purpose —
+  // it is still up in the terminal, and the card is how you get back to it. So
+  // keep the ask itself around: pressing an expired card must still raise that
+  // window rather than report a generic failure. Bounded, and only until the
+  // ask is twice as old as the TTL that retired it.
   function expire(id) {
-    if (!questions.has(id)) return;
+    const ask = questions.get(id);
+    if (!ask) return;
     questions.delete(id);
+    expired.set(id, ask);
+    while (expired.size > MAX_EXPIRED) expired.delete(expired.keys().next().value);
+    setTimeout(() => expired.delete(id), QUESTION_TTL_MS).unref();
     emit('claude.question.resolved', { id, resolution: 'timeout' });
   }
 
   async function answerQuestion(id, optionIndex) {
-    const ask = questions.get(id);
-    if (!ask) return { accepted: false, reason: 'already resolved' };
+    const ask = questions.get(id) || expired.get(id);
+    if (!ask) {
+      log('QQ', `answer refused: ${id.slice(0, 8)} already resolved`);
+      return { accepted: false, reason: 'already resolved' };
+    }
+    const timedOut = !questions.has(id);
     const option = ask.options[optionIndex];
     if (!option) return { accepted: false, reason: 'no such option' };
 
@@ -121,20 +145,27 @@ export function createQueue({ emit, store, focus }) {
 
     if (typed.typed) {
       questions.delete(id);
+      expired.delete(id);
       emit('claude.question.resolved', { id, resolution: 'answered' });
+      log('QQ', `answered by keypress: ${ask.header} → ${option.label}`);
       return { accepted: true, viaKeyboard: true, option: option.label };
     }
 
     // Focused but could not type: the human finishes it, and the ask stays in
     // the queue until the PostToolUse hook says it was answered.
-    return {
+    const res = {
       accepted: f.focused,
       viaKeyboard: false,
       option: option.label,
       focused: f.focused,
+      timedOut,
       // when focus itself failed, that is the reason worth reporting
       reason: f.focused ? (typed.reason || 'could not type') : f.reason,
     };
+    // Every outcome is logged: a device that says it could not answer must
+    // leave behind the reason it could not, on the machine that decided.
+    log('QQ', `answer ${f.focused ? 'focused' : 'failed'}${timedOut ? ' (timed out)' : ''}: ${res.reason}`);
+    return res;
   }
 
   function list() {
