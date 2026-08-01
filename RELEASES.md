@@ -16,3 +16,4 @@ Claimed release numbers. One row per merge to `main`. See CLAUDE.md → Release 
 | r10 | 2026-07-31 | bool-counts | Session counts of 0/1 render as numbers again; the connector packs them as booleans |
 | r11 | 2026-07-31 | tile-mode | Each session tile shows its window's permission mode: PLAN / BYPASS / AUTO / EDITS / MANUAL |
 | r12 | 2026-07-31 | touch-scroll | Every screen the dial scrolls now scrolls by finger too: drag becomes dial ticks, taps still land |
+| r13 | 2026-07-31 | session-dupes | One conversation is one tile: a window parked on a background job stops showing as a second session |
