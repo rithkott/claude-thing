@@ -133,6 +133,14 @@ setInterval(function () {
   if (r.name === 'ambient' || r.name === 'list' || r.name === 'queue') render();
 }, 15000);
 
+// The prompt screen acts against a live deadline, so its countdown must tick
+// on its own clock. It used to ride the daemon's event stream — which now goes
+// quiet when nothing changes, exactly when a lone pending ask would sit
+// frozen at "45s left" until the 30s heartbeat.
+setInterval(function () {
+  if (route().name === 'ask') render();
+}, 1000);
+
 // ---- toast ---------------------------------------------------------------
 
 var toastTimer = null;
