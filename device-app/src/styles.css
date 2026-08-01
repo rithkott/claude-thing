@@ -313,7 +313,7 @@ html, body {
    A filling window is normal and must not read as an alarm. */
 .tile .ctx {
   margin-top: auto;
-  padding-top: 10px;
+  padding-top: 8px;
   flex-shrink: 0;
   /* 266px, uniformly: 284px was sized to stop short of a bare corner mascot,
      but the effort label overhangs the 56px sprite column and would sit on the
@@ -321,25 +321,21 @@ html, body {
      ragged meter edges, so every tile pays the same 18px. */
   width: 266px;
 }
-.tile .ctxrow {
-  display: flex;
-  align-items: baseline;
-  margin-bottom: 5px;
-}
-.tile .ctxpct {
+/* The model as a spec line, on the line the percentage used to spend — it
+   prints on ended sessions too, where there is no track under it at all. */
+.tile .tmodel {
+  margin-bottom: 6px;
   font-family: "JetBrains Mono", Menlo, monospace;
-  font-size: 24px;
-  color: var(--bone);
-}
-.tile .ctxlabel {
-  margin-left: 6px;
-  font-family: "JetBrains Mono", Menlo, monospace;
-  font-size: 17px;
-  color: var(--dim);
+  font-size: 18px;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--faint);
 }
 .tile .ctxtrack {
   position: relative;
-  height: 8px;
+  height: 14px;
   border-radius: 4px;
   background: var(--bg-deep);
   overflow: hidden;
@@ -353,8 +349,29 @@ html, body {
   background: var(--dim);
   transition: width 0.4s ease-out;
 }
+/* The track carries its own label. Each part flips to the dark ink once the
+   fill has grown under it — the word first, the number a little later — set
+   per-span in session-list.js so a repaint only happens on a real change. */
+.tile .ctxtext {
+  position: absolute;
+  left: 8px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: .18em;
+}
+.tile .ctxword { color: var(--dim); }
+.tile .ctxnum {
+  margin-left: 7px;
+  letter-spacing: .06em;
+  color: var(--bone);
+}
+.tile .ctxword.over,
+.tile .ctxnum.over { color: var(--bg-deep); }
 .tile .ctx.hot .ctxfill { background: var(--danger); }
-.tile .ctx.hot .ctxpct { color: var(--danger); }
 
 /* ---- 8-bit mascot -------------------------------------------------------
    4-frame horizontal strips, stepped — never smoothed, never tweened.

@@ -61,6 +61,10 @@ export function createStore() {
       // effort label and keeps the plain working sprite, exactly like the
       // absent context fraction draws no meter.
       effort: s.effort || null,
+      // Which model the session runs — the tile prints it as a spec line above
+      // the context track, and on ended sessions where there is no track at
+      // all. Empty until a source reports one; the device then prints nothing.
+      model: s.model || '',
       // idle means "nothing recently"; ended means the session is over. The
       // device labels them differently, so both have to travel.
       ended: !!s.ended,
@@ -73,7 +77,6 @@ export function createStore() {
       contextTokens: s.contextTokens || 0,
       cacheRead: s.cacheRead || 0,
       cwd: s.cwd || '',
-      model: s.model || '',
       startedTs: s.startedTs || s.lastActivityTs,
       currentTool: s.currentTool || null,
       lastMessage: (s.lastMessage || '').slice(0, 200),
