@@ -74,10 +74,21 @@ export function createStore() {
       active: list.filter((s) => s.state === 'busy').length,
       attention: list.filter((s) => s.state === 'attention').length,
     };
-    // The device has no timezone data (its clock runs UTC), so the Mac's
-    // offset rides every snapshot and the device renders Mac-local time.
-    // Computed per snapshot rather than once so a DST flip propagates.
-    return { sessions: list, stats, tzOffsetMin: new Date().getTimezoneOffset() };
+    // The device knows neither what time it is nor which timezone it is in: no
+    // RTC battery, no NTP, no timezone data in the firmware. Both corrections
+    // ride every snapshot — serverNowMs sets its epoch (which also fixes the
+    // durations and countdowns it works out against Mac-stamped timestamps),
+    // tzOffsetMin renders that in Mac-local time. Computed per snapshot rather
+    // than once so a DST flip propagates.
+    //
+    // These travel inside the payload, not as the frame's server_timestamp_ms:
+    // nocturned re-stamps relayed frames with the device's own clock.
+    return {
+      sessions: list,
+      stats,
+      serverNowMs: Date.now(),
+      tzOffsetMin: new Date().getTimezoneOffset(),
+    };
   }
 
   function scheduleSnapshot() {

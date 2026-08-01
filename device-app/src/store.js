@@ -1,6 +1,6 @@
 // App state: session snapshot, detail cache, permission queue, daemon link.
 
-import { setTzOffset } from './screens/helpers.js';
+import { setTzOffset, setServerNow, now } from './clock.js';
 
 var state = {
   sessions: [],
@@ -29,6 +29,7 @@ export function update(fields) {
 }
 
 export function applySnapshot(snap) {
+  setServerNow(snap.serverNowMs);
   setTzOffset(snap.tzOffsetMin);
   var sel = state.sessions[state.selectedIndex];
   var fields = { sessions: snap.sessions || [], stats: snap.stats || state.stats };
@@ -64,7 +65,7 @@ export function expireAsk(id) {
   for (var i = 0; i < state.asks.length; i++) {
     if (state.asks[i].id === id) {
       state.asks[i].expired = true;
-      state.asks[i].expiredTs = Date.now();
+      state.asks[i].expiredTs = now();
       update({});
       return true;
     }
@@ -74,7 +75,7 @@ export function expireAsk(id) {
 
 // Expired entries are notices, not work, so they age out on their own.
 export function sweepExpired(ttlMs) {
-  var cutoff = Date.now() - ttlMs;
+  var cutoff = now() - ttlMs;
   var next = [];
   for (var i = 0; i < state.asks.length; i++) {
     var a = state.asks[i];

@@ -1,3 +1,5 @@
+import { fmtClock } from '../clock.js';
+
 export function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -9,32 +11,6 @@ export function fmtTokens(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
   if (n >= 1e3) return Math.round(n / 1e3) + 'k';
   return String(n);
-}
-
-// The Car Thing's clock runs UTC — the firmware ships no timezone data — so
-// wall time comes from the daemon: the Mac's UTC offset arrives with every
-// session snapshot. Until the first snapshot lands, local time is the only
-// guess available (correct in the emulator, 4-5h off on hardware for a few
-// seconds).
-var tzOffsetMin = null;
-export function setTzOffset(min) {
-  tzOffsetMin = typeof min === 'number' && isFinite(min) ? min : null;
-}
-
-export function fmtClock(d) {
-  d = d || new Date();
-  var h, m;
-  if (tzOffsetMin === null) {
-    h = d.getHours();
-    m = d.getMinutes();
-  } else {
-    var shifted = new Date(d.getTime() - tzOffsetMin * 60000);
-    h = shifted.getUTCHours();
-    m = shifted.getUTCMinutes();
-  }
-  var ap = h >= 12 ? 'PM' : 'AM';
-  h = h % 12 || 12;
-  return h + ':' + (m < 10 ? '0' : '') + m + ' ' + ap;
 }
 
 export function fmtDuration(ms) {

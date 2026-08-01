@@ -1,4 +1,5 @@
-import { fmtClock, fmtTokens } from './helpers.js';
+import { fmtTokens } from './helpers.js';
+import { fmtClock } from '../clock.js';
 
 export function renderAmbient(state) {
   var lamps = '';
