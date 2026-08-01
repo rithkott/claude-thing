@@ -12,6 +12,15 @@ final class ClaudeRelayService: ObservableObject {
 
     /// Set by RPCManager: forwards daemon events to every connected Car Thing.
     var onEvent: ((String, [String: Any]) -> Void)?
+
+    // Superseding state events (session list, per-session detail, usage) are
+    // coalesced before they cross Bluetooth: only the newest frame per key
+    // survives a 200ms window. The daemon already debounces at the source;
+    // this is the second line of defense for a link that is slower than the
+    // daemon thinks. Asks and their resolutions are never held back.
+    private var pendingState: [String: (topic: String, data: [String: Any])] = [:]
+    private var flushTimer: Timer?
+    private let coalesceInterval: TimeInterval = 0.2
     /// Set by NocturneApp: current Bluetooth link summary for the daemon's webpage.
     var statusProvider: (() -> [String: Any])?
 
@@ -25,6 +34,9 @@ final class ClaudeRelayService: ObservableObject {
     func stop() {
         statusTimer?.invalidate()
         statusTimer = nil
+        flushTimer?.invalidate()
+        flushTimer = nil
+        pendingState = [:]
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
         connected = false
@@ -109,7 +121,13 @@ final class ClaudeRelayService: ObservableObject {
               let type = frame["type"] as? String else { return }
 
         if type == "event", let topic = frame["topic"] as? String, topic.hasPrefix("claude.") {
-            onEvent?(topic, frame["data"] as? [String: Any] ?? [:])
+            let data = frame["data"] as? [String: Any] ?? [:]
+            if let key = coalesceKey(topic, data) {
+                pendingState[key] = (topic, data)
+                scheduleFlush()
+            } else {
+                onEvent?(topic, data)
+            }
             return
         }
         guard let id = frame["id"] as? String, let cont = pending.removeValue(forKey: id) else { return }
@@ -119,6 +137,34 @@ final class ClaudeRelayService: ObservableObject {
             cont.resume(throwing: NSError(domain: "claude", code: 3,
                 userInfo: [NSLocalizedDescriptionKey: frame["error"] as? String ?? "error"]))
         }
+    }
+
+    /// One key per stream whose frames supersede each other; nil = deliver now.
+    /// Session details are keyed per session so one chatty session cannot
+    /// swallow another's update inside the same window.
+    private func coalesceKey(_ topic: String, _ data: [String: Any]) -> String? {
+        switch topic {
+        case "claude.sessions.update", "claude.usage.update":
+            return topic
+        case "claude.session.update":
+            return topic + ":" + ((data["id"] as? String) ?? "?")
+        default:
+            return nil
+        }
+    }
+
+    private func scheduleFlush() {
+        guard flushTimer == nil else { return }
+        flushTimer = Timer.scheduledTimer(withTimeInterval: coalesceInterval, repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.flushState() }
+        }
+    }
+
+    private func flushState() {
+        flushTimer = nil
+        let batch = pendingState
+        pendingState = [:]
+        for (_, event) in batch { onEvent?(event.topic, event.data) }
     }
 }
 // MARK: - Integration

@@ -27,7 +27,12 @@ export function renderList(state) {
 
   var tiles = '';
   for (var i = 0; i < state.sessions.length; i++) {
-    tiles += tile(state.sessions[i], i === state.selectedIndex, state);
+    // Tiles beyond the viewport (and the peeking column) get their animations
+    // stopped: forty offscreen sprites stepping their sheets is paint work the
+    // panel never shows. Scrolling re-renders the list, so the marks track.
+    var col = Math.floor(i / ROWS);
+    var off = col < scrollCol || col > scrollCol + COLS_VISIBLE;
+    tiles += tile(state.sessions[i], i === state.selectedIndex, state, off);
   }
 
   var offset = scrollCol * COL_STEP;
@@ -39,8 +44,9 @@ export function renderList(state) {
     tiles + '</div></div></div>';
 }
 
-function tile(s, selected, state) {
+function tile(s, selected, state, off) {
   return '<div class="tile state-' + s.state + (selected ? ' selected' : '') +
+    (off ? ' off' : '') +
     '" data-action="open" data-id="' + esc(s.id) + '">' +
     '<span class="cap"></span>' +
     '<div class="thead"><span class="lamp ' + s.state + '"></span>' +
