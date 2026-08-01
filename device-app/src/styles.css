@@ -226,9 +226,10 @@ html, body {
 .tile.state-celebrate .slabel { color: var(--done); }
 
 /* Permission mode, engraved into the header rail opposite the state label.
-   Bypass is the one that changes what an unattended session can do to the
-   machine, so it alone reads as a warning; plan and the auto-accept modes are
-   quiet, and manual is quieter still. */
+   Each mode wears the colour Claude Code itself gives it, so the device and
+   the laptop agree at a glance: plan light blue, auto yellow, accept-edits
+   green. Bypass is the one that changes what an unattended session can do to
+   the machine, so it alone reads as a warning; manual is quieter still. */
 .tile .mode {
   margin-left: auto;
   padding: 0 8px;
@@ -240,9 +241,9 @@ html, body {
   line-height: 24px;
   color: var(--muted);
 }
-.tile .mode.m-plan { border-color: var(--accent); color: var(--accent); }
+.tile .mode.m-plan { border-color: #7fb2e8; color: #7fb2e8; }
 .tile .mode.m-bypass { border-color: var(--danger); color: var(--danger); }
-.tile .mode.m-auto,
+.tile .mode.m-auto { border-color: #ffd166; color: #ffd166; }
 .tile .mode.m-edits { border-color: var(--ok); color: var(--ok); }
 
 .tile .badge {
@@ -314,7 +315,11 @@ html, body {
   margin-top: auto;
   padding-top: 10px;
   flex-shrink: 0;
-  width: 284px;   /* stops short of the mascot in the corner */
+  /* 266px, uniformly: 284px was sized to stop short of a bare corner mascot,
+     but the effort label overhangs the 56px sprite column and would sit on the
+     track's right end. Conditional widths would leave stacked tiles with
+     ragged meter edges, so every tile pays the same 18px. */
+  width: 266px;
 }
 .tile .ctxrow {
   display: flex;
@@ -352,11 +357,19 @@ html, body {
 .tile .ctx.hot .ctxpct { color: var(--danger); }
 
 /* ---- 8-bit mascot -------------------------------------------------------
-   4-frame horizontal strips, stepped — never smoothed, never tweened. */
-.tile .sprite {
+   4-frame horizontal strips, stepped — never smoothed, never tweened.
+   The sprite and its effort label share a fixed 56px column so the label
+   centres under the feet whatever word it is. */
+.tile .mcol {
   position: absolute;
   right: 14px;
-  bottom: 12px;
+  bottom: 10px;
+  width: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.tile .sprite {
   width: 48px;
   height: 48px;
   background-repeat: no-repeat;
@@ -394,6 +407,42 @@ html, body {
   background-image: url("./sprites/sleeping-idle.svg");
   animation: sprite48 2.6s steps(1, end) infinite;
 }
+
+/* The working mascot runs at the session's effort level. Same walk sheet up
+   through HIGH — only the frame rate changes, so the read across the room is
+   purely speed — then sweat once it gets genuinely hard. A busy tile with no
+   reported effort keeps working.svg above and draws no label. */
+.tile.state-busy.e-low .sprite,
+.tile.state-busy.e-medium .sprite,
+.tile.state-busy.e-high .sprite { background-image: url("./sprites/dance-walk.svg"); }
+.tile.state-busy.e-low .sprite { animation-duration: 0.86s; }     /* leisurely walk */
+.tile.state-busy.e-medium .sprite { animation-duration: 0.5s; }   /* casual jog */
+.tile.state-busy.e-high .sprite { animation-duration: 0.32s; }    /* run */
+.tile.state-busy.e-xhigh .sprite {
+  background-image: url("./sprites/run-sweat.svg");
+  animation-duration: 0.24s;                                      /* sprint, light sweat */
+}
+.tile.state-busy.e-max .sprite {
+  background-image: url("./sprites/run-sweat-heavy.svg");
+  animation-duration: 0.17s;                                      /* full sprint, heavy sweat */
+}
+.tile.state-busy.e-ultra .sprite {
+  background-image: url("./sprites/run-sweat-heavy.svg");
+  animation: sprite48 0.17s steps(1, end) infinite, rainbow 1.6s linear infinite;
+}
+@keyframes rainbow { to { filter: hue-rotate(360deg) } }
+
+/* Named in the device's own label face, directly under the sprite. */
+.tile .elabel {
+  margin-top: 3px;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--faint);
+}
+.tile.e-ultra .elabel { color: var(--bone); }
 
 /* ---- queue: hero + stack ------------------------------------------------ */
 .qwrap {
@@ -540,6 +589,64 @@ html, body {
   font-size: 22px;
   letter-spacing: 0.1em;
   color: var(--warn);
+}
+
+/* A question answered in place: the option list opens inside the hero, funded
+   by the session name and the question's cap stepping down. All options are
+   visible at once — the rows flex to share whatever height is left, no 3-wide
+   window, no paging. */
+.qhero.answering .qherosession { font-size: 26px; }
+.qhero.answering .qherosummary { max-height: 60px; }
+.qhero .qopts {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  margin-top: 10px;
+}
+.qhero .qopt {
+  display: flex;
+  align-items: center;
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: 54px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background: var(--panel);
+}
+.qhero .qopt + .qopt { margin-top: 6px; }
+.qhero .qopt.selected {
+  border-color: var(--accent);
+  background: var(--card);
+}
+.qhero .qnum {
+  flex-shrink: 0;
+  width: 26px;
+  font-family: "JetBrains Mono", Menlo, monospace;
+  font-size: 17px;
+  color: var(--faint);
+}
+.qhero .qlabel {
+  flex-shrink: 0;
+  max-width: 300px;
+  font-weight: 700;
+  font-size: 22px;
+  color: var(--bone);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.qhero .qdesc {
+  flex: 1;
+  min-width: 0;
+  margin-left: 12px;
+  font-family: "JetBrains Mono", Menlo, monospace;
+  font-size: 16px;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .qrow {

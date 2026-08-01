@@ -56,6 +56,11 @@ export function createStore() {
       // no mode record at all, and "manual" is the wrong guess for a session
       // running with permissions skipped.
       permissionMode: s.permissionMode || null,
+      // Reasoning effort of the newest turn, straight off the transcript's
+      // assistant records. null until one says — the device then draws no
+      // effort label and keeps the plain working sprite, exactly like the
+      // absent context fraction draws no meter.
+      effort: s.effort || null,
       // idle means "nothing recently"; ended means the session is over. The
       // device labels them differently, so both have to travel.
       ended: !!s.ended,

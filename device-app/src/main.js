@@ -123,7 +123,14 @@ function indexOfAsk(id) {
   return 0;
 }
 
-window.addEventListener('hashchange', function () { askChoice = 0; render(); });
+window.addEventListener('hashchange', function () {
+  askChoice = 0;
+  // leaving the queue closes any open option list
+  if (route().name !== 'queue' && store.get().queueAnswering) {
+    store.update({ queueAnswering: false, queueChoice: 0 });
+  }
+  render();
+});
 store.subscribe(scheduleRender);
 var EXPIRED_ASK_TTL_MS = 5 * 60 * 1000;
 setInterval(function () {
@@ -168,7 +175,15 @@ onAction('dial', function (dir) {
     render();
   } else if (r.name === 'queue') {
     var n = state.asks.length;
-    if (n) store.update({ queueIndex: Math.max(0, Math.min(n - 1, state.queueIndex + dir)) });
+    if (!n) return;
+    if (state.queueAnswering) {
+      // the option list is open: the dial moves within it, not the queue
+      var hero = state.asks[Math.min(state.queueIndex, n - 1)];
+      var omax = ((hero && hero.options) || []).length - 1;
+      store.update({ queueChoice: Math.max(0, Math.min(omax, state.queueChoice + dir)) });
+    } else {
+      store.update({ queueIndex: Math.max(0, Math.min(n - 1, state.queueIndex + dir)) });
+    }
   } else if (r.name === 'list') {
     var m = state.sessions.length;
     if (m) store.update({ selectedIndex: Math.max(0, Math.min(m - 1, state.selectedIndex + dir)) });
@@ -191,13 +206,15 @@ onAction('select', function () {
   if (r.name === 'ask') {
     answerAsk(r.arg, askChoice);
   } else if (r.name === 'queue') {
-    // Triage without leaving the queue: a permission can be allowed in place,
-    // because allow/deny is the whole decision. A question can't — it needs its
-    // option list — so that one still opens the prompt.
+    // Triage without leaving the queue: a permission is allowed in place
+    // because allow/deny is the whole decision, and a question opens its
+    // option list inside the hero — first press opens, second answers.
     var a = state.asks[Math.min(state.queueIndex, state.asks.length - 1)];
     if (!a) return;
-    if (a.kind === 'permission' && !a.expired) answerFromQueue(a, 0);
-    else openAsk(a.id);
+    if (a.expired) openAsk(a.id);
+    else if (a.kind === 'permission') answerFromQueue(a, 0);
+    else if (!state.queueAnswering) store.update({ queueAnswering: true, queueChoice: 0 });
+    else answerFromQueue(a, state.queueChoice);
   } else if (r.name === 'list') {
     var s = state.sessions[state.selectedIndex];
     if (s) openSession(s.id);
@@ -223,6 +240,11 @@ onAction('back', function () {
   if (store.get().btPairing) return store.update({ btPairing: null });
   if (r.name === 'ask') skipAsk(r.arg);
   else if (r.name === 'session') nav('#/list');
+  // Back closes the open option list first and returns to queue browsing;
+  // a second back leaves for sessions.
+  else if (r.name === 'queue' && store.get().queueAnswering) {
+    store.update({ queueAnswering: false, queueChoice: 0 });
+  }
   else if (r.name === 'queue' || r.name === 'usage') nav('#/list');
   else if (r.name === 'bt') {
     if (store.get().btMenu) store.update({ btMenu: null });
@@ -357,7 +379,17 @@ onAction('tap', function (t) {
   else if (t.action === 'ask-skip') skipAsk(route().arg);
   else if (t.action === 'queue-allow' && hero) answerFromQueue(hero, 0);
   else if (t.action === 'queue-deny' && hero) answerFromQueue(hero, 1);
-  else if (t.action === 'queue-answer' && hero) openAsk(hero.id);
+  // a question opens its option list inside the hero, not the prompt screen
+  else if (t.action === 'queue-answer' && hero) {
+    if (hero.kind === 'question' && !hero.expired) {
+      store.update({ queueAnswering: true, queueChoice: 0 });
+    } else openAsk(hero.id);
+  }
+  else if (t.action === 'queue-choice' && hero) answerFromQueue(hero, Number(t.id));
+  // stack rows promote to hero rather than opening the prompt
+  else if (t.action === 'queue-promote' && t.id) {
+    store.update({ queueIndex: indexOfAsk(t.id), queueAnswering: false, queueChoice: 0 });
+  }
   else if (t.action === 'bt-toggle') toggleDiscoverable();
   else if (t.action === 'bt-device' && t.id) {
     var idx = btDeviceIndex(t.id);
@@ -417,7 +449,9 @@ function answerAsk(id, choice) {
 // returnTo is what nextAskOrBack() checks to suppress that jump.
 function answerFromQueue(ask, choice) {
   returnTo = '#/queue';
-  toast(choice === 0 ? 'ALLOW' : 'DENY');
+  if (ask.kind === 'permission') toast(choice === 0 ? 'ALLOW' : 'DENY');
+  // the question toast comes from answerAsk once the daemon says how far it got
+  store.update({ queueAnswering: false, queueChoice: 0 });
   answerAsk(ask.id, choice);
 }
 
@@ -443,7 +477,13 @@ function nextAskOrBack() {
   var asks = store.get().asks;
   if (asks.length && returnTo !== '#/queue') {
     askChoice = 0;
-    nav('#/ask/' + asks[0].id);
+    // a question is answered on the queue, not the prompt screen
+    if (asks[0].kind === 'question') {
+      store.update({ queueIndex: 0 });
+      nav('#/queue');
+    } else {
+      nav('#/ask/' + asks[0].id);
+    }
   } else {
     nav(returnTo);
   }
@@ -458,6 +498,17 @@ ws.on('claude.usage.update', function (u) { store.update({ usage: u }); });
 function surface(ask) {
   store.pushAsk(ask);
   var r = route();
+  // A question is answered inside the queue hero, so it surfaces there —
+  // promoted, ready for a press — never on the full-screen prompt.
+  if (ask.kind === 'question') {
+    if (r.name === 'ask') return render();   // don't yank a live permission
+    var st = store.get();
+    if (r.name === 'queue' && st.queueAnswering) return;   // mid-answer: it queues up behind
+    if (r.name !== 'queue') returnTo = window.location.hash || '#/list';
+    store.update({ queueIndex: indexOfAsk(ask.id) });
+    nav('#/queue');
+    return;
+  }
   if (r.name !== 'ask') {
     returnTo = window.location.hash || '#/list';
     askChoice = 0;
@@ -589,7 +640,8 @@ ws.onOpen(function () {
     for (var i = 0; i < asks.length; i++) store.pushAsk(asks[i]);
     if (asks.length && route().name === 'list') {
       returnTo = '#/list';
-      nav('#/ask/' + asks[0].id);
+      if (asks[0].kind === 'question') nav('#/queue');
+      else nav('#/ask/' + asks[0].id);
     }
   }).catch(function () {});
 

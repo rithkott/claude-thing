@@ -45,6 +45,10 @@ export function startTranscriptTail({ store, sessionId, transcriptPath }) {
       fields.cacheRead = (raw.cacheRead || 0) + (usage.cache_read_input_tokens || 0);
     }
     if (msg.model) fields.model = msg.model;
+    // Assistant records carry the turn's reasoning effort at the top level
+    // ("low" … "max", "ultrathink"). The device runs the working mascot's gait
+    // off it; pass the string through and let the device whitelist.
+    if (typeof obj.effort === 'string' && obj.effort) fields.effort = obj.effort;
 
     // last assistant text snippet
     const content = msg.content;

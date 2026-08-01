@@ -36,6 +36,9 @@ export function startMockSource({ store, permissionBridge, queue }) {
       // Every mode the badge knows, plus one session with none, so dev sees
       // the whole set — including the tile that draws no badge at all.
       permissionMode: ['plan', 'bypassPermissions', 'auto', 'default', 'acceptEdits', null][i % 6],
+      // Every effort gait too, including the absent one that falls back to
+      // the plain working sprite.
+      effort: ['low', 'medium', 'high', 'xhigh', 'max', 'ultrathink', null][i % 7],
     });
     return id;
   });

@@ -75,6 +75,15 @@ SessionSummary = {
   context: number|null, // 0..1 of the model's context window; null when the
                         // model is unknown, so the device draws no meter
                         // rather than a meter against a guess
+  permissionMode: string|null, // "plan"|"bypassPermissions"|"acceptEdits"|
+                        // "auto"|"default"; null until a hook or transcript
+                        // record says — the device draws no badge for null
+                        // or anything it can't name
+  effort: string|null,  // reasoning effort of the newest turn, off the
+                        // transcript's assistant records ("low"…"max",
+                        // "ultrathink"); null until one says — the device
+                        // then draws no effort label and keeps the plain
+                        // working sprite
 }
 // ~150 B each, unbounded count — the device grid scrolls sideways through
 // them. Over Bluetooth an async event snapshot spans multiple chunks, which the

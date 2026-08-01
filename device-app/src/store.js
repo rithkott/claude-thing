@@ -15,6 +15,8 @@ var state = {
   daemonConnected: true,
   selectedIndex: 0,     // session grid cursor
   queueIndex: 0,        // queue list cursor
+  queueAnswering: false, // question hero's option list is open in place
+  queueChoice: 0,        // cursor within that list
   btDevices: [],        // [{address, name, paired, connected}]
   btDiscoverable: false,
   btIndex: 0,           // bluetooth cursor: 0 = pairing toggle, 1..n = devices
@@ -109,7 +111,9 @@ export function sweepExpired(ttlMs) {
   }
   if (next.length !== state.asks.length) {
     var qi = Math.min(state.queueIndex, Math.max(0, next.length - 1));
-    update({ asks: next, queueIndex: qi });
+    // The hero may have changed under an open option list; close it rather
+    // than leave the list pointing at a different ask.
+    update({ asks: next, queueIndex: qi, queueAnswering: false, queueChoice: 0 });
   }
 }
 
@@ -119,7 +123,7 @@ export function resolveAsk(id) {
     if (state.asks[i].id !== id) next.push(state.asks[i]);
   }
   var qi = Math.min(state.queueIndex, Math.max(0, next.length - 1));
-  update({ asks: next, queueIndex: qi });
+  update({ asks: next, queueIndex: qi, queueAnswering: false, queueChoice: 0 });
 }
 
 export function getAsk(id) {

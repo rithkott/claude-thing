@@ -157,11 +157,22 @@ test('summary stays small: name clamped, only the agreed fields', () => {
   const s = store.snapshot().sessions[0];
   assert.equal(s.name.length, 32);
   assert.deepEqual(Object.keys(s).sort(), [
-    'context', 'ended', 'id', 'lastActivityTs', 'name', 'pendingPermission',
-    'permissionMode', 'state', 'tokens',
+    'context', 'effort', 'ended', 'id', 'lastActivityTs', 'name',
+    'pendingPermission', 'permissionMode', 'state', 'tokens',
   ]);
   assert.deepEqual(s.tokens, { in: 5, out: 7 });
   assert.equal(s.context, null, 'no model, no window size, so no fraction');
+});
+
+test('effort rides the summary, null until a transcript reports one', () => {
+  const store = createStore();
+  store.touch('a', { name: 'proj' });
+  assert.equal(store.snapshot().sessions[0].effort, null,
+    'no guess for a session nothing has said an effort for');
+  store.upsert('a', { effort: 'xhigh' });
+  assert.equal(store.snapshot().sessions[0].effort, 'xhigh');
+  store.upsert('a', { effort: 'ultrathink' });
+  assert.equal(store.snapshot().sessions[0].effort, 'ultrathink', 'an effort change follows');
 });
 
 test('permission mode rides the summary, null until a source reports one', () => {
