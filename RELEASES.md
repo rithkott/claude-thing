@@ -17,3 +17,4 @@ Claimed release numbers. One row per merge to `main`. See CLAUDE.md → Release 
 | r11 | 2026-07-31 | tile-mode | Each session tile shows its window's permission mode: PLAN / BYPASS / AUTO / EDITS / MANUAL |
 | r12 | 2026-07-31 | touch-scroll | Every screen the dial scrolls now scrolls by finger too: drag becomes dial ticks, taps still land |
 | r13 | 2026-07-31 | session-dupes | One conversation is one tile: a window parked on a background job stops showing as a second session |
+| r14 | 2026-07-31 | dancing-claude | A dancing Claude mascot roams the clock screen on a ~50 second routine |

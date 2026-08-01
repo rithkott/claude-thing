@@ -8,6 +8,7 @@ import { renderQueue } from './screens/queue.js';
 import { renderAsk, setQueueContext } from './screens/ask.js';
 import { renderUsage } from './screens/usage.js';
 import { renderAmbient } from './screens/ambient.js';
+import * as mascot from './mascot.js';
 
 var app = document.getElementById('app');
 var banner = document.getElementById('banner');
@@ -35,6 +36,7 @@ function render() {
 
   if (r.name === 'ambient') {
     app.innerHTML = renderAmbient(state);
+    mascot.show();
   } else if (r.name === 'session' && r.arg) {
     app.innerHTML = renderDetail(state, r.arg);
   } else if (r.name === 'queue') {
@@ -50,6 +52,7 @@ function render() {
     app.innerHTML = renderList(state);
     marquee();
   }
+  if (r.name !== 'ambient') mascot.hide();
   banner.className = state.daemonConnected ? 'banner' : 'banner show';
 }
 
