@@ -172,12 +172,11 @@ export function createFocus() {
     }
     if (r.out !== 'true') return { focused: false, reason: 'no Terminal tab owns that tty' };
     log('FC', `focused ${target.name || sessionId.slice(0, 8)} (${tty})${viaHost ? ' [parked host]' : ''}`);
-    // Typing is only synthesized into a window we know is showing this exact
-    // session's prompt. A parked window is showing the job — but the daemon
-    // cannot see what is on screen there, so it hands the keypress to the human.
-    return viaHost
-      ? { focused: true, app: 'Terminal', exact: false, tty, viaHost: true, reason: 'parked window raised' }
-      : { focused: true, app: 'Terminal', exact: true, tty };
+    // A parked window is the job's window: whatever the job is asking is what
+    // is on screen there, so the keypress belongs to it exactly as much as it
+    // belongs to a session's own tab. Anything less means walking to the Mac,
+    // which is the one thing the device exists to avoid.
+    return { focused: true, app: 'Terminal', exact: true, tty, viaHost };
   }
 
   // Types a single character into the focused window. Requires Automation →

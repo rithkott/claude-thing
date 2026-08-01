@@ -4,7 +4,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-process.env.CLAUDE_THING_QUESTION_TTL_MS = '60';
+// Short enough to watch a timeout, long enough that the tombstone the ask
+// moves into (kept for another TTL) is still there when the test presses it.
+process.env.CLAUDE_THING_QUESTION_TTL_MS = '200';
 const { createQueue } = await import('../src/queue.js');
 const { createStore } = await import('../src/sessions/store.js');
 
@@ -36,7 +38,7 @@ async function queueThenExpire() {
   const s = setup();
   s.queue.onQuestion(HOOK);
   const [ask] = s.queue.list();
-  await sleep(120);
+  await sleep(260);
   return { ...s, ask };
 }
 
@@ -54,7 +56,7 @@ test('a timed-out question can still be typed into when focus is exact', async (
   const s = setup({ focused: true, exact: true, app: 'Terminal' });
   s.queue.onQuestion(HOOK);
   const [ask] = s.queue.list();
-  await sleep(120);
+  await sleep(260);
 
   const res = await s.queue.answerQuestion(ask.id, 1);
   assert.equal(res.viaKeyboard, true);
