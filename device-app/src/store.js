@@ -7,8 +7,9 @@ var state = {
   stats: { active: 0, attention: 0 },
   details: {},          // id -> SessionDetail
   // Everything waiting on a human, oldest first. Two kinds:
-  //   permission — {kind:'permission', id, sessionId, tool, summary, createdTs, timeoutMs}
-  //   question   — {kind:'question', id, sessionId, header, question,
+  //   permission — {kind:'permission', id, sessionId, tool, summary, intent,
+  //                 createdTs, timeoutMs}
+  //   question   — {kind:'question', id, sessionId, header, question, intent,
   //                 options:[{label, description}], multiSelect, createdTs}
   asks: [],
   usage: null,          // latest claude.usage.update payload
@@ -17,6 +18,8 @@ var state = {
   queueIndex: 0,        // queue list cursor
   queueAnswering: false, // question hero's option list is open in place
   queueChoice: 0,        // cursor within that list
+  armed: null,          // {id, expires} — destructive ask half-pressed
+  undo: null,           // {ask, index, choice, expires} — answer held, undoable
   btDevices: [],        // [{address, name, paired, connected}]
   btDiscoverable: false,
   btIndex: 0,           // bluetooth cursor: 0 = pairing toggle, 1..n = devices
@@ -106,6 +109,10 @@ export function reconcileAsks(list) {
   for (var k = 0; k < next.length; k++) known[next[k].id] = true;
   for (var n = 0; n < list.length; n++) {
     if (known[list[n].id]) continue;
+    // An answer held in its undo window is off the list on purpose; the daemon
+    // still vouches for it because the decision hasn't been sent yet, and
+    // re-adding it here would put the card back while its answer is in flight.
+    if (state.undo && state.undo.ask.id === list[n].id) continue;
     var ask = list[n];
     if (!ask.sessionName) ask.sessionName = sessionName(ask.sessionId);
     next.push(ask);
@@ -158,7 +165,9 @@ export function resolveAsk(id) {
     if (state.asks[i].id !== id) next.push(state.asks[i]);
   }
   var qi = Math.min(state.queueIndex, Math.max(0, next.length - 1));
-  update({ asks: next, queueIndex: qi, queueAnswering: false, queueChoice: 0 });
+  var fields = { asks: next, queueIndex: qi, queueAnswering: false, queueChoice: 0 };
+  if (state.armed && state.armed.id === id) fields.armed = null;
+  update(fields);
 }
 
 export function getAsk(id) {

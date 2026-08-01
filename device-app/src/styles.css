@@ -197,17 +197,19 @@ html, body {
   background: var(--panel-hi);
   box-shadow: 0 0 0 2px var(--accent);
 }
+/* Saturated colour means "a human is needed": the cap used to flood every
+   tile with its state colour, which left nothing for the one tile that wants
+   a person. The lamps stay hued — they are small and act as the legend — but
+   the band across the top is structural on everything except ATTENTION. */
 .tile .cap {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   height: 5px;
-  background: var(--idle);
+  background: var(--rule);
 }
-.tile.state-busy .cap { background: var(--ok); }
 .tile.state-attention .cap { background: var(--warn); }
-.tile.state-celebrate .cap { background: var(--done); }
 
 .tile .thead {
   display: flex;
@@ -315,19 +317,20 @@ html, body {
   margin-top: auto;
   padding-top: 8px;
   flex-shrink: 0;
-  /* 266px, uniformly: 284px was sized to stop short of a bare corner mascot,
-     but the effort label overhangs the 56px sprite column and would sit on the
-     track's right end. Conditional widths would leave stacked tiles with
-     ragged meter edges, so every tile pays the same 18px. */
-  width: 266px;
+  /* Stops short of the 56px corner mascot: 372 - 18px padding each side -
+     56 sprite - 12 right inset - clearance. */
+  width: 268px;
 }
-/* The model as a spec line, on the line the percentage used to spend — it
-   prints on ended sessions too, where there is no track under it at all. */
-.tile .tmodel {
+/* Model and effort merged into one spec line, on the line the percentage used
+   to spend — confirmed once, not scanned, so it sits at the small end of the
+   scale and the mascot gets the room instead. Prints on ended sessions too,
+   where there is no track under it at all. */
+.tile .tspec {
   margin-bottom: 6px;
   font-family: "JetBrains Mono", Menlo, monospace;
-  font-size: 18px;
+  font-size: 13px;
   line-height: 1;
+  letter-spacing: 0.04em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -367,7 +370,7 @@ html, body {
   letter-spacing: .18em;
   white-space: nowrap;
 }
-.tile .ctxword { color: var(--dim); }
+.tile .ctxword { color: var(--text-2); }
 .tile .ctxnum {
   margin-left: 7px;
   letter-spacing: .06em;
@@ -381,22 +384,16 @@ html, body {
 
 /* ---- 8-bit mascot -------------------------------------------------------
    4-frame horizontal strips, stepped — never smoothed, never tweened.
-   The sprite and its effort label share a fixed 56px column so the label
-   centres under the feet whatever word it is. */
-.tile .mcol {
-  position: absolute;
-  right: 14px;
-  bottom: 10px;
-  width: 56px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
+   56px on the tile: the spec line absorbed the effort caption, so the whole
+   corner goes to the animation — the one channel that reads at distance. */
 .tile .sprite {
-  width: 48px;
-  height: 48px;
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 56px;
+  height: 56px;
   background-repeat: no-repeat;
-  background-size: 192px 48px;
+  background-size: 224px 56px;
   image-rendering: pixelated;
   image-rendering: -moz-crisp-edges;
 }
@@ -405,6 +402,13 @@ html, body {
   25%  { background-position: -48px 0 }
   50%  { background-position: -96px 0 }
   75%  { background-position: -144px 0 }
+  100% { background-position: 0 0 }
+}
+@keyframes sprite56 {
+  0%   { background-position: 0 0 }
+  25%  { background-position: -56px 0 }
+  50%  { background-position: -112px 0 }
+  75%  { background-position: -168px 0 }
   100% { background-position: 0 0 }
 }
 @keyframes sprite96 {
@@ -416,19 +420,19 @@ html, body {
 }
 .tile.state-busy .sprite {
   background-image: url("./sprites/working.svg");
-  animation: sprite48 0.52s steps(1, end) infinite;
+  animation: sprite56 0.52s steps(1, end) infinite;
 }
 .tile.state-attention .sprite {
   background-image: url("./sprites/attention.svg");
-  animation: sprite48 0.68s steps(1, end) infinite;
+  animation: sprite56 0.68s steps(1, end) infinite;
 }
 .tile.state-celebrate .sprite {
   background-image: url("./sprites/celebrate.svg");
-  animation: sprite48 0.44s steps(1, end) infinite;
+  animation: sprite56 0.44s steps(1, end) infinite;
 }
 .tile.state-idle .sprite {
   background-image: url("./sprites/sleeping-idle.svg");
-  animation: sprite48 2.6s steps(1, end) infinite;
+  animation: sprite56 2.6s steps(1, end) infinite;
 }
 
 /* The working mascot runs at the session's effort level. Same walk sheet up
@@ -451,21 +455,9 @@ html, body {
 }
 .tile.state-busy.e-ultra .sprite {
   background-image: url("./sprites/run-sweat-heavy.svg");
-  animation: sprite48 0.17s steps(1, end) infinite, rainbow 1.6s linear infinite;
+  animation: sprite56 0.17s steps(1, end) infinite, rainbow 1.6s linear infinite;
 }
 @keyframes rainbow { to { filter: hue-rotate(360deg) } }
-
-/* Named in the device's own label face, directly under the sprite. */
-.tile .elabel {
-  margin-top: 3px;
-  font-weight: 700;
-  font-size: 14px;
-  letter-spacing: 0.14em;
-  line-height: 1;
-  white-space: nowrap;
-  color: var(--faint);
-}
-.tile.e-ultra .elabel { color: var(--bone); }
 
 /* ---- queue: hero + stack ------------------------------------------------ */
 .qwrap {
@@ -530,6 +522,9 @@ html, body {
   color: var(--warn);
 }
 .qhero.question .qkind { color: var(--accent); }
+/* A destructive permission names itself in the kind line, in the colour of
+   the thing it might do. */
+.qhero.destructive .qkind { color: var(--danger); }
 .qhero .qwait {
   margin-left: auto;
   font-family: "JetBrains Mono", Menlo, monospace;
@@ -547,8 +542,22 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* What you asked for, directly under the session name: a command without
+   intent is an approval made blind. */
+.qintent {
+  margin-top: 2px;
+  flex-shrink: 0;
+  font-family: "JetBrains Mono", Menlo, monospace;
+  font-size: 17px;
+  line-height: 1.2;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .qherosummary {
   margin-top: 6px;
+  flex-shrink: 0;
   max-height: 90px;
   overflow: hidden;
   font-family: "JetBrains Mono", Menlo, monospace;
@@ -557,6 +566,18 @@ html, body {
   color: var(--text-3);
   word-break: break-all;
 }
+/* The intent line costs the hero ~27px, so the layout pays for it explicitly:
+   the name steps down, the summary clamps to the two lines that matter — it
+   is the command being authorized, and must never be the child that gives way
+   when the column runs short — and the chips give back 4px. */
+.qhero.has-intent .qherosession { font-size: 34px; }
+.qhero.has-intent .qherosummary {
+  max-height: 60px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.qhero.has-intent .qchip { height: 62px; }
 
 .qactions {
   display: flex;
@@ -599,6 +620,13 @@ html, body {
 .qchip.filled.answer { background: var(--accent); }
 .qchip.filled .qchiplabel { color: var(--bg-deep); }
 .qchip.filled .qchiphint { color: rgba(14, 10, 4, 0.62); }
+/* Destructive: an outline that says press twice, then — once armed — a filled
+   danger chip for the 4s confirmation window. */
+.qchip.allow.destructive { border-color: var(--warn); }
+.qchip.allow.destructive .qchiplabel { color: var(--warn); }
+.qchip.allow.armed { border-color: var(--danger); background: var(--danger); }
+.qchip.allow.armed .qchiplabel { color: var(--bg-deep); }
+.qchip.allow.armed .qchiphint { color: rgba(14, 10, 4, 0.7); }
 
 .qexpired {
   flex: 1;
@@ -863,6 +891,7 @@ html, body {
   color: var(--warn);
 }
 .perm.question .who { color: var(--accent); }
+.perm.destructive .who { color: var(--danger); }
 .perm .cdtime {
   margin-left: auto;
   font-family: "JetBrains Mono", Menlo, monospace;
@@ -960,6 +989,16 @@ html, body {
 .perm .pbtn.allow .a { color: var(--ok); }
 .perm .pbtn.deny .a { color: var(--danger); }
 .perm .pbtn.dismiss .a { color: var(--muted); }
+/* Armed destructive allow: filled danger for the confirmation window. The
+   fill wins over the selection highlight — being armed IS the selection. */
+.perm.destructive .pbtn.allow .a { color: var(--warn); }
+.perm .pbtn.allow.armed,
+.perm .pbtn.allow.armed.selected {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+.perm .pbtn.allow.armed .a { color: var(--bg-deep); }
+.perm .pbtn.allow.armed .h { color: rgba(14, 10, 4, 0.7); }
 .perm .pbtn .h {
   margin-top: 6px;
   font-family: "JetBrains Mono", Menlo, monospace;
@@ -1324,21 +1363,45 @@ html, body {
   color: var(--faint);
 }
 
-/* ---- ambient ------------------------------------------------------------ */
+/* ---- ambient ------------------------------------------------------------
+   A desk clock first: the clock is the hero, the status line sits directly
+   under it where the eye already is. Blocked state is carried by colour,
+   motion and the pulsing panel edge — the clock never loses the page. */
 .ambient {
   align-items: center;
   justify-content: center;
 }
 .ambient .bigclock {
   font-weight: 700;
-  font-size: 118px;
-  line-height: 1.1;
+  font-size: 104px;
+  line-height: 1;
   letter-spacing: 0.03em;
   color: var(--bone);
 }
+.ambient .ahead {
+  margin-top: 16px;
+  font-weight: 700;
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  text-align: center;
+  color: var(--bone);
+}
+.ambient .ahead.blocked {
+  font-size: 44px;
+  color: var(--warn);
+  animation: breathe 2.4s ease-in-out infinite;
+}
+.ambient .caption {
+  margin-top: 14px;
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: 0.2em;
+  color: var(--dim);
+}
 .ambient .fleet {
   display: flex;
-  margin-top: 24px;
+  margin-top: 20px;
 }
 .ambient .fleet .lamp {
   width: 24px;
@@ -1346,18 +1409,11 @@ html, body {
   border-radius: 5px;
   margin: 0 8px;
 }
-.ambient .caption {
-  margin-top: 20px;
-  font-weight: 700;
-  font-size: 19px;
-  letter-spacing: 0.2em;
-  color: var(--text-2);
-}
 .ambient .tokens {
-  margin-top: 10px;
+  margin-top: 20px;
   font-family: "JetBrains Mono", Menlo, monospace;
-  font-size: 20px;
-  color: var(--muted);
+  font-size: 18px;
+  color: var(--fainter);
 }
 .ambient .hint {
   position: absolute;
@@ -1452,6 +1508,28 @@ html, body {
   background-image: url("./sprites/dance-boogie.svg");
   animation: sprite96 0.44s steps(1, end) infinite;
 }
+
+/* ---- blocked edge --------------------------------------------------------
+   A blocked session must be visible from every screen: whenever anything is
+   waiting, the whole panel wears a pulsing warn border. Ambient colour beats
+   a counter at a metre. Suppressed (by main.js) on the queue and the prompt,
+   where you are already looking at the thing. */
+.edge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 800px;
+  height: 480px;
+  border: 4px solid var(--warn);
+  display: none;
+  pointer-events: none;
+  z-index: 250;
+}
+.edge.show {
+  display: block;
+  animation: edgepulse 2.4s ease-in-out infinite;
+}
+@keyframes edgepulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.38 } }
 
 /* ---- banner + toast ----------------------------------------------------- */
 .banner {

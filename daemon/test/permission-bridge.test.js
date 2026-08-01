@@ -186,3 +186,22 @@ test('file and url tools summarise their salient argument', () => {
   const summaries = events.filter((e) => e.topic === 'claude.permission.request').map((e) => e.data.summary);
   assert.deepEqual(summaries, ['/tmp/a.js', 'https://example.com']);
 });
+
+test('the ask carries what the user asked for, when a prompt has been seen', () => {
+  const { bridge, store, events } = setup();
+  store.upsert('sess-1', { lastPrompt: 'reinstall the device-app deps' });
+  bridge.onHookRequest(HOOK, fakeRes());
+
+  const req = events.find((e) => e.topic === 'claude.permission.request');
+  assert.equal(req.data.intent, 'you asked: reinstall the device-app deps');
+  assert.equal(bridge.list()[0].intent, 'you asked: reinstall the device-app deps',
+    'late clients get the same line from the queue list');
+});
+
+test('no prompt seen means an empty intent, never an invented one', () => {
+  const { bridge, events } = setup();
+  bridge.onHookRequest(HOOK, fakeRes());
+  const req = events.find((e) => e.topic === 'claude.permission.request');
+  assert.equal(req.data.intent, '');
+  assert.equal(bridge.list()[0].intent, '');
+});

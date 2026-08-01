@@ -54,7 +54,7 @@ connected clients.
 |---|---|---|
 | `claude.sessions.update` | `{sessions:[SessionSummary], stats:Stats, serverNowMs, tzOffsetMin}` | full idempotent snapshot of ALL sessions, debounced 500 ms. The device's clock is wrong in both axes — no RTC battery, no NTP, no timezone data — so it takes both from here: `serverNowMs` = the Mac's `Date.now()`, the epoch every device-side duration and countdown is measured against; `tzOffsetMin` = the Mac's `Date.getTimezoneOffset()`, which renders it as local time. Not the frame's `server_timestamp_ms` — nocturned re-stamps relayed frames with the device clock |
 | `claude.session.update` | `SessionDetail` | pushed on change for any live session |
-| `claude.permission.request` | `{requestId, sessionId, tool, summary, createdTs, timeoutMs}` | timeoutMs = 55000 |
+| `claude.permission.request` | `{requestId, sessionId, tool, summary, intent, createdTs, timeoutMs}` | timeoutMs = 55000; `intent` = "you asked: …" from the session's last prompt, "" when unknown |
 | `claude.permission.resolved` | `{requestId, resolution:"allow"\|"deny"\|"timeout"}` | closes prompt everywhere; terminal-answered too |
 | `claude.question.request` | `Ask` (kind `question`) | a multiple-choice question is on screen in some session |
 | `claude.question.resolved` | `{id, resolution:"answered"\|"timeout"}` | the question is gone, however it was answered |
@@ -104,9 +104,12 @@ SessionDetail = SessionSummary & {
 Stats = { active: number, attention: number }
 
 Ask =
-  | { kind:"permission", id, sessionId, sessionName, tool, summary, createdTs, timeoutMs }
-  | { kind:"question", id, sessionId, sessionName, header, question,
+  | { kind:"permission", id, sessionId, sessionName, tool, summary, intent, createdTs, timeoutMs }
+  | { kind:"question", id, sessionId, sessionName, header, question, intent,
       options:[{label, description}], multiSelect, createdTs }
+// intent: "you asked: " + the session's last user prompt (≤120 chars,
+// whitespace-collapsed), or "" when no prompt has been seen — the device
+// omits the hero's intent line rather than inventing one
 
 Usage = {
   updatedTs, updatedLabel, subscription?, stale?, error?,

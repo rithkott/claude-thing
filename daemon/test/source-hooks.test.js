@@ -68,3 +68,16 @@ test("the daemon's own usage runs are ignored whatever hook they fire", () => {
   onHookEvent('UserPromptSubmit', { session_id: 'ours-1', cwd: '/tmp', prompt: '/usage' });
   assert.equal(store.count(), 0);
 });
+
+test('a prompt is kept as lastPrompt, collapsed and capped, for ask intent lines', () => {
+  const store = createStore();
+  const { onHookEvent } = startHooksSource({ store });
+  onHookEvent('SessionStart', { session_id: 'p-1', cwd: '/Users/dev/proj' });
+  onHookEvent('UserPromptSubmit', {
+    session_id: 'p-1', cwd: '/Users/dev/proj',
+    prompt: '  reinstall\n   the deps  ' + 'x'.repeat(300),
+  });
+  const kept = store.raw('p-1').lastPrompt;
+  assert.ok(kept.startsWith('reinstall the deps'), 'whitespace collapsed');
+  assert.equal(kept.length, 120, 'capped for a single 800px line');
+});

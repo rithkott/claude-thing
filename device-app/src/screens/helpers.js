@@ -59,6 +59,15 @@ export function effortLabel(effort) {
   return EFFORT_LABELS[effort] || null;
 }
 
+// A command you cannot take back must not cost the same gesture as "read a
+// file". Anything matching here is flagged destructive: the allow chip asks
+// for a second press, on the queue hero and the prompt screen alike.
+var DESTRUCTIVE_RE = /\brm\s+-|--force\b|--hard\b|\bDROP\s|\bTRUNCATE\b|\bmkfs|\bdd\s+if=|\bchmod\s+777\b|curl[^|]*\|\s*(ba|z)?sh/i;
+
+export function isDestructive(ask) {
+  return ask.kind === 'permission' && DESTRUCTIVE_RE.test(String(ask.summary || ''));
+}
+
 export function topbar(title, connected, count) {
   return '<div class="topbar"><span class="mark"></span>' +
     '<span class="title">' + esc(title) + '</span>' +

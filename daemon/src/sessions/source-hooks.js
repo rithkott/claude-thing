@@ -50,7 +50,16 @@ export function startHooksSource({ store, queue }) {
         // The turn has begun and stays begun until Stop. Without this the
         // session reads idle through every pause for thought, because thinking
         // writes nothing and fires no hook.
-        store.touch(id, { ...base, waitingForInput: false, stoppedTs: null, thinking: true, lastMessage: String(payload.prompt || '').slice(0, 200) });
+        //
+        // The prompt is also kept as lastPrompt: every ask raised during this
+        // turn carries it as its intent line — a command without what you
+        // asked for is an approval made blind. lastMessage gets overwritten by
+        // the transcript tail as the turn progresses; this field does not.
+        store.touch(id, {
+          ...base, waitingForInput: false, stoppedTs: null, thinking: true,
+          lastMessage: String(payload.prompt || '').slice(0, 200),
+          lastPrompt: String(payload.prompt || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+        });
         // A new prompt means no dialog is up. A declined plan or an Esc'd
         // question fires no PostToolUse, so this is where those asks die.
         if (queue) queue.onQuestionAnswered(payload);

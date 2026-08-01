@@ -39,6 +39,9 @@ export function startMockSource({ store, permissionBridge, queue }) {
       // Every effort gait too, including the absent one that falls back to
       // the plain working sprite.
       effort: ['low', 'medium', 'high', 'xhigh', 'max', 'ultrathink', null][i % 7],
+      // Feeds the ask's intent line in mock mode; one session without, so the
+      // hero that omits the line is visible in dev too.
+      lastPrompt: i === 2 ? null : `tidy up the ${name} build`,
     });
     return id;
   });
@@ -61,10 +64,17 @@ export function startMockSource({ store, permissionBridge, queue }) {
     }
   }, 8_000);
 
-  // scripted permission request every 60s against a fake held response
+  // scripted permission request every 60s against a fake held response;
+  // every other one is destructive, so the two-press arming chip gets
+  // exercised in dev alongside the plain allow.
+  let permN = 0;
   const perm = setInterval(() => {
     const id = ids[0];
-    const [tool, input] = TOOLS[n % TOOLS.length];
+    let [tool, input] = TOOLS[n % TOOLS.length];
+    if (permN++ % 2 === 1) {
+      tool = 'Bash';
+      input = { command: 'rm -rf node_modules && npm ci' };
+    }
     const fakeRes = {
       writeHead: () => {},
       end: (body) => log('MK', `mock hook answered: ${String(body).slice(0, 80)}`),

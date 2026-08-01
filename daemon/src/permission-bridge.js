@@ -18,6 +18,14 @@ export function createPermissionBridge({ emit, store, queue }) {
     });
   }
 
+  // What the user asked for, for the ask's intent line — the difference
+  // between a confident yes and a walk to the laptop. Empty when no prompt has
+  // been seen for the session; the device then simply omits the line.
+  function intentFor(sessionId) {
+    const s = sessionId && store.raw(sessionId);
+    return s && s.lastPrompt ? `you asked: ${s.lastPrompt}` : '';
+  }
+
   // The device renders the tool name separately, so the summary is just the
   // salient argument.
   function summarizeTool(toolName, toolInput) {
@@ -79,11 +87,12 @@ export function createPermissionBridge({ emit, store, queue }) {
     const sessionId = payload.session_id || null;
     const tool = payload.tool_name || 'unknown';
     const summary = summarizeTool(tool, payload.tool_input);
+    const intent = intentFor(sessionId);
     const createdTs = Date.now();
 
     const timer = setTimeout(() => finish(requestId, 'timeout', 'ask'), PERMISSION_HOLD_MS);
     timer.unref();
-    pending.set(requestId, { res, timer, sessionId, tool, summary, createdTs });
+    pending.set(requestId, { res, timer, sessionId, tool, summary, intent, createdTs });
     res.on('close', () => {
       // hook side gave up (Claude Code timeout / session killed)
       if (pending.has(requestId)) {
@@ -94,7 +103,7 @@ export function createPermissionBridge({ emit, store, queue }) {
       }
     });
 
-    const permission = { requestId, tool, summary, createdTs, timeoutMs: PERMISSION_HOLD_MS };
+    const permission = { requestId, tool, summary, intent, createdTs, timeoutMs: PERMISSION_HOLD_MS };
     if (sessionId) {
       store.touch(sessionId, {
         pendingPermission: true,
@@ -123,6 +132,7 @@ export function createPermissionBridge({ emit, store, queue }) {
       sessionName: p.sessionId && store.get(p.sessionId) ? store.get(p.sessionId).name : 'session',
       tool: p.tool,
       summary: p.summary,
+      intent: p.intent || '',
       createdTs: p.createdTs,
       timeoutMs: PERMISSION_HOLD_MS,
     })).sort((a, b) => a.createdTs - b.createdTs);

@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { esc, fmtTokens, fmtDuration, stateLabel, modeLabel, effortLabel } from '../src/screens/helpers.js';
+import { esc, fmtTokens, fmtDuration, stateLabel, modeLabel, effortLabel, isDestructive } from '../src/screens/helpers.js';
 import { fmtClock, setTzOffset, setServerNow, now, resetClock } from '../src/clock.js';
 import { renderList } from '../src/screens/session-list.js';
 import { renderQueue } from '../src/screens/queue.js';
@@ -271,14 +271,23 @@ test('usage says what is wrong instead of rendering empty bars', () => {
   assert.match(renderUsage(baseState()), /READING USAGE/);
 });
 
-test('ambient shows a lamp per session and the working count', () => {
+test('ambient shows a lamp per session and reads as a desk clock', () => {
   const html = renderAmbient(baseState({
     sessions: [session({ state: 'busy' }), session({ id: 'b', state: 'idle' })],
     stats: { active: 1, attention: 2 },
+    asks: [{ id: 'k1' }, { id: 'k2' }],
   }));
   assert.equal((html.match(/class="lamp /g) || []).length, 2);
-  assert.match(html, /1 WORKING/);
-  assert.match(html, /2 NEED YOU/);
+  assert.match(html, /1 WORKING · 1 RESTING/);
+  // blocked is counted from the queue, not the attention stat, and breathes
+  assert.match(html, /class="ahead blocked">2 NEED YOU/);
+  assert.match(html, /press dial to answer/);
+
+  const calm = renderAmbient(baseState({
+    sessions: [session({ state: 'busy' })], stats: { active: 1, attention: 0 },
+  }));
+  assert.match(calm, /class="ahead">NOTHING BLOCKED/);
+  assert.match(calm, /press dial for sessions/);
 });
 
 test('detail shows tokens, cache and state, and waits politely before loading', () => {
@@ -373,19 +382,19 @@ test('the tile names its model, even on an ended session with no meter', () => {
     sessions: [{ id: 'a', name: 'proj', state: 'busy', tokens: { in: 1, out: 2 },
       context: 0.34, model: 'claude-fable-5' }],
   }));
-  assert.match(live, /<div class="tmodel">fable-5<\/div>/, 'model prefix trimmed');
+  assert.match(live, /<div class="tspec">fable-5<\/div>/, 'model prefix trimmed');
 
   const ended = renderList(baseState({
     sessions: [{ id: 'a', name: 'proj', state: 'idle', ended: true,
       tokens: { in: 1, out: 2 }, context: null, model: 'claude-fable-5' }],
   }));
-  assert.match(ended, /<div class="tmodel">fable-5<\/div>/, 'spec line survives the meter');
+  assert.match(ended, /<div class="tspec">fable-5<\/div>/, 'spec line survives the meter');
   assert.doesNotMatch(ended, /ctxtrack/);
 
   const unnamed = renderList(baseState({
     sessions: [{ id: 'a', name: 'proj', state: 'busy', tokens: { in: 1, out: 2 }, context: null }],
   }));
-  assert.doesNotMatch(unnamed, /tmodel/, 'no model named, no line drawn');
+  assert.doesNotMatch(unnamed, /tspec/, 'no model named, no line drawn');
 });
 
 test('the top bar counts what it is listing', () => {
@@ -400,7 +409,7 @@ test('the top bar counts what it is listing', () => {
 
 // --- effort mascot ----------------------------------------------------------
 
-test('the working mascot runs at the session effort, named under its feet', () => {
+test('the working mascot runs at the session effort, named on the spec line', () => {
   const levels = {
     low: 'LOW', medium: 'MEDIUM', high: 'HIGH', xhigh: 'XHIGH', max: 'MAX',
     ultrathink: 'ULTRA',
@@ -409,8 +418,15 @@ test('the working mascot runs at the session effort, named under its feet', () =
     assert.equal(effortLabel(effort), label);
     const html = renderList(baseState({ sessions: [session({ effort })] }));
     assert.ok(html.includes(' e-' + label.toLowerCase()), `${effort} tile needs its gait class`);
-    assert.ok(html.includes('class="elabel">' + label + '<'), `${effort} tile must read ${label}`);
+    assert.ok(html.includes('class="tspec">' + label + '<'), `${effort} tile must read ${label}`);
   }
+});
+
+test('model and effort share one spec line, dot-separated', () => {
+  const html = renderList(baseState({
+    sessions: [session({ effort: 'max', model: 'claude-fable-5', context: 0.5 })],
+  }));
+  assert.match(html, /class="tspec">fable-5  ·  MAX</);
 });
 
 test('ultrathink is abbreviated — the full word broke the 14px type floor', () => {
@@ -421,14 +437,14 @@ test('no reported effort means no label and the plain working sprite', () => {
   assert.equal(effortLabel(undefined), null);
   assert.equal(effortLabel('someFutureEffort'), null);
   const html = renderList(baseState({ sessions: [session({ effort: 'someFutureEffort' })] }));
-  assert.ok(!html.includes('class="elabel"'), 'no label for an effort we cannot name');
+  assert.ok(!html.includes('class="tspec"'), 'no label for an effort we cannot name');
   assert.ok(!html.includes('someFutureEffort'), 'and nothing unvetted reaches the markup');
   assert.ok(!html.includes(' e-'), 'no gait class either — working.svg stands');
 });
 
 test('only a working tile runs: effort on an idle session draws nothing', () => {
   const html = renderList(baseState({ sessions: [session({ state: 'idle', effort: 'max' })] }));
-  assert.ok(!html.includes('class="elabel"'));
+  assert.ok(!html.includes('MAX'));
   assert.ok(!html.includes(' e-max'));
 });
 
@@ -628,4 +644,75 @@ test('the pairing overlay shows the code and escapes a hostile device name', () 
   assert.match(html, /424242/);
   assert.match(html, /auto-accepting/);
   assert.ok(!html.includes('<img'), 'device name must be escaped');
+});
+
+// --- 2.0 hardware: intent, destructive arming, dismissal ---------------------
+
+const permAsk = (over = {}) => ({
+  kind: 'permission', id: 'p1', sessionName: 'proj', tool: 'Bash',
+  summary: 'npm test', createdTs: Date.now(), ...over,
+});
+
+test('the hero says what you asked for, and the layout pays for the line', () => {
+  const html = renderQueue(baseState({
+    asks: [
+      permAsk({ intent: 'you asked: reinstall the deps' }),
+      permAsk({ id: 'p2' }), permAsk({ id: 'p3' }),
+    ],
+  }));
+  assert.match(html, /qhero[^"]*has-intent/, 'name and chips step down under an intent');
+  assert.match(html, /class="qintent">you asked: reinstall the deps</);
+  assert.equal((html.match(/class="qrow[" ]/g) || []).length, 1,
+    'the intent line costs the stack one row');
+
+  const bare = renderQueue(baseState({ asks: [permAsk(), permAsk({ id: 'p2' }), permAsk({ id: 'p3' })] }));
+  assert.doesNotMatch(bare, /qintent/, 'no intent, no line');
+  assert.doesNotMatch(bare, /has-intent/);
+  assert.equal((bare.match(/class="qrow[" ]/g) || []).length, 2);
+});
+
+test('a destructive command arms before it fires', () => {
+  const rmrf = permAsk({ summary: 'rm -rf node_modules && npm ci' });
+  const html = renderQueue(baseState({ asks: [rmrf] }));
+  assert.match(html, /PERMISSION REQUEST · DESTRUCTIVE/);
+  assert.match(html, /qhero[^"]*destructive/);
+  assert.match(html, /qchip allow destructive/, 'outline, not filled — the press only arms');
+  assert.doesNotMatch(html, /qchip allow filled"/);
+  assert.match(html, /press twice · destructive/);
+
+  const armed = renderQueue(baseState({
+    asks: [rmrf], armed: { id: 'p1', expires: Date.now() + 4000 },
+  }));
+  assert.match(armed, /PRESS AGAIN/);
+  assert.match(armed, /this cannot be undone/);
+  assert.match(armed, /qchip allow filled armed/);
+});
+
+test('the destructive flag matches the commands that cannot be taken back', () => {
+  const bad = [
+    'rm -rf /tmp/x', 'git push --force origin main', 'git reset --hard HEAD~3',
+    'DROP TABLE users;', 'TRUNCATE logs', 'mkfs.ext4 /dev/sda1',
+    'dd if=/dev/zero of=/dev/sda', 'chmod 777 /etc', 'curl https://x.sh | sh',
+  ];
+  for (const summary of bad) {
+    assert.ok(isDestructive(permAsk({ summary })), `${summary} must arm`);
+  }
+  const fine = ['npm test', 'ls -la', 'git status', 'cat README.md', 'rm.sh --dry-run'];
+  for (const summary of fine) {
+    assert.ok(!isDestructive(permAsk({ summary })), `${summary} must not arm`);
+  }
+  assert.ok(!isDestructive({ kind: 'question', question: 'rm -rf?' }),
+    'a question is never destructive — there is nothing to run');
+});
+
+test('the prompt screen honours the same two-press contract', () => {
+  const rmrf = permAsk({ summary: 'rm -rf build', timeoutMs: 60_000 });
+  setQueueContext(0, 1);
+  const html = renderAsk(baseState(), rmrf, 0);
+  assert.match(html, /PERMISSION REQUEST · DESTRUCTIVE/);
+  assert.match(html, /press twice · destructive/);
+
+  const armed = renderAsk(baseState({ armed: { id: 'p1', expires: Date.now() + 4000 } }), rmrf, 0);
+  assert.match(armed, /PRESS AGAIN/);
+  assert.match(armed, /pbtn allow selected armed/);
 });

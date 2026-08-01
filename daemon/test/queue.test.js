@@ -193,3 +193,24 @@ test('list is oldest-first', () => {
   assert.equal(asks.length, 2);
   assert.ok(asks[0].createdTs <= asks[1].createdTs);
 });
+
+test('a question and a plan both carry the intent line when a prompt is known', () => {
+  const { queue, events, store } = setup();
+  store.touch('sess-1', { lastPrompt: 'migrate the schema' });
+  queue.onQuestion(QUESTION_HOOK);
+  const q = events.find((e) => e.topic === 'claude.question.request');
+  assert.equal(q.data.intent, 'you asked: migrate the schema');
+  assert.equal(queue.list()[0].intent, 'you asked: migrate the schema');
+
+  events.length = 0;
+  queue.onPlanApproval({ session_id: 'sess-1', tool_input: { plan: '# Plan\ndo it' } });
+  const p = events.find((e) => e.topic === 'claude.question.request');
+  assert.equal(p.data.intent, 'you asked: migrate the schema');
+});
+
+test('no prompt seen: the ask goes out with an empty intent', () => {
+  const { queue, events } = setup();
+  queue.onQuestion(QUESTION_HOOK);
+  const q = events.find((e) => e.topic === 'claude.question.request');
+  assert.equal(q.data.intent, '');
+});
