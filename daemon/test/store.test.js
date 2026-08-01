@@ -122,10 +122,23 @@ test('summary stays small: name clamped, only the agreed fields', () => {
   const s = store.snapshot().sessions[0];
   assert.equal(s.name.length, 32);
   assert.deepEqual(Object.keys(s).sort(), [
-    'context', 'ended', 'id', 'lastActivityTs', 'name', 'pendingPermission', 'state', 'tokens',
+    'context', 'ended', 'id', 'lastActivityTs', 'name', 'pendingPermission',
+    'permissionMode', 'state', 'tokens',
   ]);
   assert.deepEqual(s.tokens, { in: 5, out: 7 });
   assert.equal(s.context, null, 'no model, no window size, so no fraction');
+});
+
+test('permission mode rides the summary, null until a source reports one', () => {
+  const store = createStore();
+  store.touch('a', { name: 'proj' });
+  assert.equal(store.snapshot().sessions[0].permissionMode, null,
+    'no guess for a session nothing has said a mode for');
+  store.upsert('a', { permissionMode: 'bypassPermissions' });
+  assert.equal(store.snapshot().sessions[0].permissionMode, 'bypassPermissions');
+  assert.equal(store.get('a').permissionMode, 'bypassPermissions', 'detail carries it too');
+  store.upsert('a', { permissionMode: 'plan' });
+  assert.equal(store.snapshot().sessions[0].permissionMode, 'plan', 'a mode change follows');
 });
 
 test('context is a fraction of the model window, or null when unknowable', () => {

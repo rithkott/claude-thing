@@ -29,6 +29,10 @@ export function startHooksSource({ store, queue }) {
     // recognize this session as a real conversation even when the cwd-derived
     // path guess misses.
     if (payload.transcript_path) base.transcriptPath = payload.transcript_path;
+    // Builds that put the current mode on the hook payload beat the transcript
+    // record to it; ones that don't leave this undefined and the tail supplies
+    // the mode a moment later.
+    if (payload.permission_mode) base.permissionMode = String(payload.permission_mode);
     if (!known || !known.name) {
       base.name = registryName || (cwd ? path.basename(cwd) : undefined);
     }

@@ -1,4 +1,4 @@
-import { esc, topbar, stateLabel, fmtDuration } from './helpers.js';
+import { esc, topbar, stateLabel, modeLabel, fmtDuration } from './helpers.js';
 import { now } from '../clock.js';
 
 // Sideways-scrolling grid: two rows, columns flow to the right without limit.
@@ -45,6 +45,7 @@ function tile(s, selected, state) {
     '<span class="cap"></span>' +
     '<div class="thead"><span class="lamp ' + s.state + '"></span>' +
     '<span class="slabel">' + stateLabel(s.state, s.ended) + '</span>' +
+    modeChip(s.permissionMode) +
     (s.pendingPermission ? '<span class="badge">!</span>' : '') + '</div>' +
     // The name is measured after paint and only marquees if it actually
     // overflows; see marquee() in main.js.
@@ -53,6 +54,16 @@ function tile(s, selected, state) {
     contextMeter(s.context) +
     '<span class="sprite"></span>' +
     '</div>';
+}
+
+// Which permission mode the window is in — the one thing about a session that
+// its output never reveals. Only whitelisted modes reach the markup, so the
+// label is safe to build a class name out of; an unknown mode draws nothing
+// rather than a badge saying something the daemon never claimed.
+function modeChip(mode) {
+  var label = modeLabel(mode);
+  if (!label) return '';
+  return '<span class="mode m-' + label.toLowerCase() + '">' + label + '</span>';
 }
 
 // Neutral all the way up, red only near the top: a filling context window is

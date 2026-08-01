@@ -11,6 +11,16 @@ export function startTranscriptTail({ store, sessionId, transcriptPath }) {
     let obj;
     try { obj = JSON.parse(line); } catch { return; }
 
+    // Permission mode is its own record type — {type, permissionMode,
+    // sessionId} and nothing else. Claude Code writes one near the top of the
+    // transcript and again on every change, so tailing it is how the device
+    // learns which mode a window is in; the session registry carries no such
+    // field. Returns early because the record has no message to harvest.
+    if (obj.type === 'permission-mode' && obj.permissionMode) {
+      store.upsert(sessionId, { permissionMode: String(obj.permissionMode) });
+      return;
+    }
+
     const msg = obj.message || obj;
     const usage = msg.usage || obj.usage;
     if (usage) {
