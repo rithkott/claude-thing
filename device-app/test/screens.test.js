@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { esc, fmtTokens, fmtDuration, stateLabel, modeLabel } from '../src/screens/helpers.js';
+import { esc, fmtTokens, fmtDuration, stateLabel, modeLabel, effortLabel } from '../src/screens/helpers.js';
 import { fmtClock, setTzOffset, setServerNow, now, resetClock } from '../src/clock.js';
 import { renderList } from '../src/screens/session-list.js';
 import { renderQueue } from '../src/screens/queue.js';
@@ -18,6 +18,7 @@ function baseState(over = {}) {
   return {
     sessions: [], stats: { active: 0, attention: 0 }, details: {}, asks: [],
     usage: null, daemonConnected: true, selectedIndex: 0, queueIndex: 0,
+    queueAnswering: false, queueChoice: 0,
     btDevices: [], btDiscoverable: false, btIndex: 0, btMenu: null,
     btMenuIndex: 0, btBusy: null, btPairing: null, ...over,
   };
@@ -361,6 +362,102 @@ test('the top bar counts what it is listing', () => {
     ],
   }));
   assert.match(html, /class="tcount">2</);
+});
+
+// --- effort mascot ----------------------------------------------------------
+
+test('the working mascot runs at the session effort, named under its feet', () => {
+  const levels = {
+    low: 'LOW', medium: 'MEDIUM', high: 'HIGH', xhigh: 'XHIGH', max: 'MAX',
+    ultrathink: 'ULTRA',
+  };
+  for (const [effort, label] of Object.entries(levels)) {
+    assert.equal(effortLabel(effort), label);
+    const html = renderList(baseState({ sessions: [session({ effort })] }));
+    assert.ok(html.includes(' e-' + label.toLowerCase()), `${effort} tile needs its gait class`);
+    assert.ok(html.includes('class="elabel">' + label + '<'), `${effort} tile must read ${label}`);
+  }
+});
+
+test('ultrathink is abbreviated — the full word broke the 14px type floor', () => {
+  assert.equal(effortLabel('ultrathink'), 'ULTRA');
+});
+
+test('no reported effort means no label and the plain working sprite', () => {
+  assert.equal(effortLabel(undefined), null);
+  assert.equal(effortLabel('someFutureEffort'), null);
+  const html = renderList(baseState({ sessions: [session({ effort: 'someFutureEffort' })] }));
+  assert.ok(!html.includes('class="elabel"'), 'no label for an effort we cannot name');
+  assert.ok(!html.includes('someFutureEffort'), 'and nothing unvetted reaches the markup');
+  assert.ok(!html.includes(' e-'), 'no gait class either — working.svg stands');
+});
+
+test('only a working tile runs: effort on an idle session draws nothing', () => {
+  const html = renderList(baseState({ sessions: [session({ state: 'idle', effort: 'max' })] }));
+  assert.ok(!html.includes('class="elabel"'));
+  assert.ok(!html.includes(' e-max'));
+});
+
+// --- questions answered inside the queue hero --------------------------------
+
+const questionAsk = (over = {}) => ({
+  kind: 'question', id: 'q1', sessionName: 'proj', question: 'Which?',
+  options: [
+    { label: 'One', description: 'first' },
+    { label: 'Two' },
+    { label: 'Three', description: 'third' },
+    { label: 'Four' },
+  ],
+  createdTs: Date.now(),
+  ...over,
+});
+
+test('an answering hero shows every option in place, one selected', () => {
+  const html = renderQueue(baseState({
+    asks: [questionAsk()], queueAnswering: true, queueChoice: 2,
+  }));
+  assert.match(html, /qhero question answering/, 'the hero funds the list by shrinking');
+  assert.equal((html.match(/data-action="queue-choice"/g) || []).length, 4,
+    'all options at once — no 3-wide window, no paging');
+  assert.equal((html.match(/qopt selected/g) || []).length, 1);
+  assert.ok(html.indexOf('Three') > 0 && /qopt selected"[^>]*data-id="2"/.test(html),
+    'the selection is where the cursor is');
+  assert.doesNotMatch(html, /qchip/, 'the action chip gave way to the list');
+});
+
+test('while the list is open the stack hides but the queue context survives', () => {
+  const html = renderQueue(baseState({
+    asks: [questionAsk(), questionAsk({ id: 'q2' }), questionAsk({ id: 'q3' })],
+    queueAnswering: true,
+  }));
+  assert.doesNotMatch(html, /class="qrow/, 'stack rows give the list their room');
+  assert.match(html, /2 more waiting/);
+  assert.match(html, /dial moves · press answers · back closes/);
+});
+
+test('answering state only applies to a live question hero', () => {
+  const perm = renderQueue(baseState({
+    asks: [{ kind: 'permission', id: 'p1', sessionName: 'proj', tool: 'Bash', summary: 'ls', createdTs: Date.now() }],
+    queueAnswering: true,
+  }));
+  assert.doesNotMatch(perm, /answering/, 'a permission has no list to open');
+  assert.match(perm, /ALLOW/);
+
+  const expired = renderQueue(baseState({
+    asks: [questionAsk({ expired: true, expiredTs: Date.now() })],
+    queueAnswering: true,
+  }));
+  assert.doesNotMatch(expired, /qopts/, 'an expired question cannot be answered here');
+});
+
+test('a question hero opens its list on tap; stack rows promote to hero', () => {
+  const html = renderQueue(baseState({
+    asks: [questionAsk(), questionAsk({ id: 'q2' })],
+  }));
+  assert.match(html, /qhero question[^>]*data-action="queue-answer"/,
+    'the hero tap opens options in place, not the prompt screen');
+  assert.match(html, /class="qrow question"[^>]*data-action="queue-promote"/,
+    'a stack tap promotes rather than opening the prompt');
 });
 
 test('the queue hero offers a question its options rather than allow/deny', () => {

@@ -25,3 +25,4 @@ Claimed release numbers. One row per merge to `main`. See CLAUDE.md → Release 
 | r19 | 2026-08-01 | duplicate-question-alert | One alert per question: a multiple-choice ask stops also raising a permission card with a raw JSON body |
 | r20 | 2026-08-01 | relay-coalesce | Bluetooth relay coalesces state frames, offscreen tiles stop animating, faceplate stops double-parsing broadcasts |
 | r21 | 2026-08-01 | relay-default | Claude Code relay toggle is on by default in a fresh DMG install |
+| r22 | 2026-08-01 | hw-frontend | Mode chips take Claude Code's colours, questions answered inside the queue hero, working mascot runs at the session's effort level |

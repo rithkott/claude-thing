@@ -41,6 +41,24 @@ export function modeLabel(mode) {
   return MODE_LABELS[mode] || null;
 }
 
+// Reasoning effort, as the daemon reports it. Whitelisted like the modes: the
+// label doubles as a class name, and an unknown level draws neither label nor
+// gait — the tile falls back to the plain working sprite. `ultrathink` renders
+// as ULTRA: the full word was the only thing forcing the label under the 14px
+// type floor; abbreviated, every label clears the meter and the tile edge.
+var EFFORT_LABELS = {
+  low: 'LOW',
+  medium: 'MEDIUM',
+  high: 'HIGH',
+  xhigh: 'XHIGH',
+  max: 'MAX',
+  ultrathink: 'ULTRA',
+};
+
+export function effortLabel(effort) {
+  return EFFORT_LABELS[effort] || null;
+}
+
 export function topbar(title, connected, count) {
   return '<div class="topbar"><span class="mark"></span>' +
     '<span class="title">' + esc(title) + '</span>' +

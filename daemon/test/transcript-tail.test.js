@@ -35,6 +35,22 @@ test('a permission-mode record lands on the session, later ones replace it', asy
   tail.stop();
 });
 
+test('an assistant record\'s effort lands on the session, later ones replace it', async () => {
+  const store = createStore();
+  const transcriptPath = tmpTranscript([
+    { type: 'assistant', effort: 'high', message: { model: 'claude-fable-5' } },
+  ]);
+  const tail = startTranscriptTail({ store, sessionId: 'a', transcriptPath });
+  await settle();
+  assert.equal(store.get('a').effort, 'high');
+
+  fs.appendFileSync(transcriptPath,
+    JSON.stringify({ type: 'assistant', effort: 'ultrathink', message: {} }) + '\n');
+  await settle();
+  assert.equal(store.get('a').effort, 'ultrathink');
+  tail.stop();
+});
+
 test('a mode record is not mistaken for a message and harvested for usage', async () => {
   const store = createStore();
   const transcriptPath = tmpTranscript([

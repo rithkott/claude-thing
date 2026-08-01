@@ -1,4 +1,4 @@
-import { esc, topbar, stateLabel, modeLabel, fmtDuration } from './helpers.js';
+import { esc, topbar, stateLabel, modeLabel, effortLabel, fmtDuration } from './helpers.js';
 import { now } from '../clock.js';
 
 // Sideways-scrolling grid: two rows, columns flow to the right without limit.
@@ -45,7 +45,11 @@ export function renderList(state) {
 }
 
 function tile(s, selected, state, off) {
+  // The working mascot's gait comes from the session's effort level; only a
+  // busy tile runs, and only a whitelisted level gets a class and a label.
+  var eff = s.state === 'busy' ? effortLabel(s.effort) : null;
   return '<div class="tile state-' + s.state + (selected ? ' selected' : '') +
+    (eff ? ' e-' + eff.toLowerCase() : '') +
     (off ? ' off' : '') +
     '" data-action="open" data-id="' + esc(s.id) + '">' +
     '<span class="cap"></span>' +
@@ -58,7 +62,8 @@ function tile(s, selected, state, off) {
     '<div class="tname"><span class="tnamei" data-marquee="1">' + esc(s.name) + '</span></div>' +
     '<div class="tsub">' + esc(subline(s, state)) + '</div>' +
     contextMeter(s.context) +
-    '<span class="sprite"></span>' +
+    '<div class="mcol"><span class="sprite"></span>' +
+    (eff ? '<span class="elabel">' + eff + '</span>' : '') + '</div>' +
     '</div>';
 }
 
