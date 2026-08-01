@@ -12,8 +12,12 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { USAGE_REFRESH_MS } from './config.js';
-import { isOwnSession, markOwnSession } from './own-sessions.js';
+import { markOwnSession } from './own-sessions.js';
+import { readState, writeState } from './persist.js';
 import { log } from './log.js';
+
+// Where the last good reading is kept between runs.
+const STATE_NAME = 'usage';
 
 // A run costs no inference but still boots Claude Code and reads the plan, which
 // takes the better part of 20 seconds on a cold start. The old 25s ceiling cut
@@ -116,6 +120,56 @@ export function parseUsage(text, now = Date.now()) {
   };
 }
 
+// --- keeping a reading honest across polls ------------------------------------
+//
+// `claude -p /usage` does not always ask the server. It prints whatever is in
+// `cachedUsageUtilization` in ~/.claude.json, and that file is read-modify-
+// written wholesale by every claude process on the machine. A long-lived
+// session that loaded it an hour ago writes its own stale copy back over the
+// fresh one, so consecutive polls a minute apart can disagree — the screen
+// flips between the real figure and a stale lower one until something settles.
+// Observed live: 1% used, then 0% used, inside the same five-hour window.
+//
+// The fix is the one fact the reading itself gives us: usage inside a window
+// only ever goes up. A lower number for the same window is a stale read, not a
+// refund, so the higher one stands. When the window really does roll over the
+// reset clause changes with it, and the drop is taken at face value.
+
+function sameWindow(prev, next) {
+  // A reading with no reset clause carries no window identity of its own — the
+  // zeroed-out shape a clobbered cache prints — so it cannot claim to be a new
+  // window. Only a different, stated reset time counts as a rollover.
+  if (!prev.detail || !next.detail) return true;
+  return prev.detail === next.detail;
+}
+
+export function reconcileUsage(prev, next) {
+  if (!next || !Array.isArray(next.limits)) return next;
+  const before = new Map(((prev && prev.limits) || []).map((l) => [l.key, l]));
+  const limits = next.limits.map((l) => {
+    const p = before.get(l.key);
+    if (!p || !(p.used > l.used) || !sameWindow(p, l)) return l;
+    // Held: the previous reading wins, and keeps its reset clause if this one
+    // arrived without any.
+    return { ...l, used: p.used, detail: l.detail || p.detail };
+  });
+  return { ...next, limits };
+}
+
+// The last good reading, so a restart shows real figures instead of spending a
+// minute on "READING USAGE…". Flagged stale until the first live poll lands.
+function loadPersisted() {
+  const saved = readState(STATE_NAME);
+  if (!saved || !Array.isArray(saved.limits) || !saved.limits.length) return null;
+  const at = saved.updatedTs ? new Date(saved.updatedTs).toTimeString().slice(0, 5) : '';
+  return {
+    ...saved,
+    stale: true,
+    error: undefined,
+    updatedLabel: `last reading${at ? ' ' + at : ''} · from claude /usage`,
+  };
+}
+
 // What actually went wrong, in the words the device has room for. A killed run
 // timed out — say that, rather than quoting whichever line stderr happened to
 // end on, which is how warnings get mistaken for causes.
@@ -131,7 +185,7 @@ export function describeFailure(err, stderr) {
 }
 
 export function createUsage({ emit }) {
-  let latest = null;
+  let latest = loadPersisted();
   let timer = null;
   let running = false;
 
@@ -179,7 +233,8 @@ export function createUsage({ emit }) {
       } else {
         const parsed = parseUsage(out.text);
         if (parsed) {
-          latest = parsed;
+          latest = reconcileUsage(latest, parsed);
+          writeState(STATE_NAME, latest);
         } else {
           latest = { ...(latest || {}), stale: true, error: 'could not parse /usage output' };
         }

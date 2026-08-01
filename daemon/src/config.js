@@ -18,6 +18,9 @@ export const DAEMON_VERSION = JSON.parse(
 export const WEBPAGE_DIST = path.join(PROJECT_ROOT, 'webpage', 'dist');
 export const LOG_DIR = path.join(DAEMON_ROOT, 'logs');
 export const PID_FILE = path.join(DAEMON_ROOT, '.daemon.pid');
+// Daemon state that outlives the process (see persist.js). Overridable so tests
+// never touch the real one.
+export const STATE_DIR = process.env.CLAUDE_THING_STATE_DIR || path.join(DAEMON_ROOT, '.state');
 
 export const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 export const CLAUDE_SETTINGS = path.join(CLAUDE_DIR, 'settings.json');
