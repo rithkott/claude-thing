@@ -158,19 +158,23 @@ html, body {
 @keyframes breathe { 0%, 100% { opacity: 1 } 50% { opacity: 0.45 } }
 @keyframes blink   { 0%, 100% { opacity: 1 } 50% { opacity: 0.25 } }
 
-/* ---- sessions grid ------------------------------------------------------ */
+/* ---- sessions grid ------------------------------------------------------
+   Column width is set so the next column's edge lands ~28px inside the right
+   bezel: the sliver is what tells you the set continues, which is why there is
+   no scrollbar under the grid. 12 + 372 + 8 + 372 = 764, leaving 36px of the
+   800px screen for the peek minus the 8px gap. */
 .gridwrap {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding: 8px 12px 0 12px;
+  padding: 8px 12px 12px 12px;
 }
 .gridtrack {
   height: 100%;
   display: grid;
   grid-auto-flow: column;
   grid-template-rows: repeat(2, 1fr);
-  grid-auto-columns: 384px;
+  grid-auto-columns: 372px;
   grid-gap: 8px;
   transition: transform 0.18s ease-out;
   will-change: transform;
@@ -276,7 +280,7 @@ html, body {
   margin-top: auto;
   padding-top: 10px;
   flex-shrink: 0;
-  width: 296px;   /* stops short of the mascot in the corner */
+  width: 284px;   /* stops short of the mascot in the corner */
 }
 .tile .ctxrow {
   display: flex;
@@ -312,24 +316,6 @@ html, body {
 }
 .tile .ctx.hot .ctxfill { background: var(--danger); }
 .tile .ctx.hot .ctxpct { color: var(--danger); }
-
-.grail {
-  position: relative;
-  height: 4px;
-  margin: 11px 12px 5px 12px;
-  flex-shrink: 0;
-  border-radius: 2px;
-  background: var(--rule);
-}
-.grail.blank { background: transparent; }
-.gthumb {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  border-radius: 2px;
-  background: var(--accent);
-  transition: left 0.18s ease-out;
-}
 
 /* ---- 8-bit mascot -------------------------------------------------------
    4-frame horizontal strips, stepped — never smoothed, never tweened. */

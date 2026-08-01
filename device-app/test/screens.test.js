@@ -80,11 +80,12 @@ test('grid scrolls sideways only once the selection leaves the visible columns',
   assert.ok(offset > 0, 'track slid to keep the selection on screen');
 });
 
-test('the scroll rail is present but blank when everything fits', () => {
-  const few = renderList(baseState({ sessions: [session()] }));
-  assert.match(few, /grail blank/, 'blank rail keeps the bottom spacing even');
+test('no scroll rail — the next column peeking past the bezel is the affordance', () => {
   const many = renderList(baseState({ sessions: Array.from({ length: 12 }, (_, i) => session({ id: `s${i}` })) }));
-  assert.match(many, /gthumb/, 'thumb appears once it scrolls');
+  assert.doesNotMatch(many, /grail|gthumb/, 'no rail eating vertical space');
+  // Every session is in the track, so the column after the visible two is laid
+  // out just off the right edge and shows as a sliver.
+  assert.equal((many.match(/data-action="open"/g) || []).length, 12);
 });
 
 test('grid explains itself when there are no sessions', () => {
