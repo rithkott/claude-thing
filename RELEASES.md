@@ -13,3 +13,4 @@ Claimed release numbers. One row per merge to `main`. See CLAUDE.md → Release 
 | r7 | 2026-07-31 | dial-accuracy | Dial matches real Car Thing photos: plain 36mm disc upper-right, overhangs face edge |
 | r8 | 2026-07-31 | list-peek | Sessions grid drops the scrollbar; the next column peeks past the bezel instead |
 | r9 | 2026-07-31 | device-clock | Device wall clock and every duration run on Mac time, not the device's unset epoch |
+| r10 | 2026-07-31 | bool-counts | Session counts of 0/1 render as numbers again; the connector packs them as booleans |
