@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseUsage, describeFailure } from '../src/usage.js';
+import { parseUsage, describeFailure, reconcileUsage } from '../src/usage.js';
 
 // Verbatim shape of `claude -p "/usage"` output.
 const SAMPLE = `You are currently using your subscription to power your Claude Code usage
@@ -90,6 +90,58 @@ test('top-skills prose is parsed into rows the device can tabulate', () => {
   assert.deepEqual(w.mcp, [{ name: 'claude-in-chrome', pct: '4%' }]);
   // the raw bullets survive, so a behaviour line is never lost to parsing
   assert.ok(w.notes.some((n) => /150k context/.test(n)));
+});
+
+// --- reconciling consecutive readings -----------------------------------------
+
+const reading = (limits) => ({ updatedTs: 1, limits });
+
+test('a lower reading for the same window is a stale cache read, not a refund', () => {
+  const prev = reading([{ key: 'session', label: 'SESSION', used: 1, detail: 'resets Aug 1 at 2am' }]);
+  const next = reading([{ key: 'session', label: 'SESSION', used: 0.86, detail: 'resets Aug 1 at 2am' }]);
+  assert.equal(reconcileUsage(prev, next).limits[0].used, 1);
+});
+
+test('a reading that lost its reset clause cannot pass as a new window', () => {
+  // the zeroed shape a clobbered ~/.claude.json cache prints
+  const prev = reading([{ key: 'session', label: 'SESSION', used: 0.06, detail: 'resets Aug 1 at 2am' }]);
+  const next = reading([{ key: 'session', label: 'SESSION', used: 0, detail: '' }]);
+  const l = reconcileUsage(prev, next).limits[0];
+  assert.equal(l.used, 0.06);
+  assert.equal(l.detail, 'resets Aug 1 at 2am', 'the held reading keeps its reset clause');
+});
+
+test('a real rollover moves the reset clause, and the drop is taken', () => {
+  const prev = reading([{ key: 'session', label: 'SESSION', used: 1, detail: 'resets Aug 1 at 2am' }]);
+  const next = reading([{ key: 'session', label: 'SESSION', used: 0.03, detail: 'resets Aug 1 at 7am' }]);
+  assert.equal(reconcileUsage(prev, next).limits[0].used, 0.03);
+});
+
+test('rising usage always wins, and limits are matched per key', () => {
+  const prev = reading([
+    { key: 'session', label: 'SESSION', used: 0.4, detail: 'resets Aug 1 at 2am' },
+    { key: 'week-all-models', label: 'WEEK · ALL MODELS', used: 0.9, detail: 'resets Aug 4 at 5pm' },
+  ]);
+  const next = reading([
+    { key: 'session', label: 'SESSION', used: 0.5, detail: 'resets Aug 1 at 2am' },
+    { key: 'week-all-models', label: 'WEEK · ALL MODELS', used: 0.7, detail: 'resets Aug 4 at 5pm' },
+  ]);
+  assert.deepEqual(reconcileUsage(prev, next).limits.map((l) => l.used), [0.5, 0.9]);
+});
+
+test('a limit with no history, and no history at all, passes straight through', () => {
+  const next = reading([{ key: 'week-fable', label: 'WEEK · FABLE', used: 0.2, detail: 'resets Aug 4 at 5pm' }]);
+  assert.equal(reconcileUsage(null, next).limits[0].used, 0.2);
+  assert.equal(reconcileUsage(reading([]), next).limits[0].used, 0.2);
+});
+
+test('everything but the limits comes from the newest reading', () => {
+  const prev = { updatedTs: 1, stale: true, error: 'old failure', limits: [] };
+  const next = parseUsage(SAMPLE, 2);
+  const out = reconcileUsage(prev, next);
+  assert.equal(out.updatedTs, 2);
+  assert.equal(out.stale, undefined, 'a fresh reading is never stale');
+  assert.equal(out.error, undefined);
 });
 
 // --- failure text -------------------------------------------------------------

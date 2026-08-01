@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .cache/
+.state/
 logs/
 *.pid
 .DS_Store
@@ -16,3 +17,6 @@ build/
 *.zip
 *.ext2
 *.dump
+
+# feature worktrees live inside the repo but are their own checkouts
+.claude/worktrees/
