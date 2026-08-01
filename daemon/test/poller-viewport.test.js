@@ -58,6 +58,73 @@ test('no processes at all yields no parents rather than throwing', () => {
   assert.equal(parseForkParents(null).size, 0);
 });
 
+// --- parked windows -----------------------------------------------------------
+//
+// The registry knows a window has handed its turn away before ps can: the job's
+// process does not exist yet, but `parkedJobId` is already written.
+
+import { readParkedWindows, liveJobIds, createReconciler } from '../src/sessions/source-poller.js';
+import { createStore } from '../src/sessions/store.js';
+
+function registryDir(records) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sessions-'));
+  records.forEach((rec, i) => fs.writeFileSync(path.join(dir, `${1000 + i}.json`), JSON.stringify(rec)));
+  return dir;
+}
+
+test('a parked window is read out of the session registry', () => {
+  const dir = registryDir([
+    { pid: 1, sessionId: 'window', kind: 'interactive', parkedJobId: '73953827' },
+    { pid: 2, sessionId: 'plain-window', kind: 'interactive' },
+    { pid: 3, sessionId: '73953827-2ff7-4eb1', kind: 'bg', jobId: '73953827' },
+  ]);
+  try {
+    const parked = readParkedWindows(dir);
+    assert.equal(parked.get('window'), '73953827');
+    assert.equal(parked.has('plain-window'), false, 'an unparked window is not listed');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('an unreadable or absent registry is empty, not an exception', () => {
+  assert.equal(readParkedWindows('/no/such/registry').size, 0);
+});
+
+test('a job is live while the listing carries its short id', () => {
+  const ids = liveJobIds([
+    { kind: 'interactive', sessionId: 'window' },
+    { kind: 'background', id: '73953827', sessionId: '73953827-2ff7-4eb1' },
+  ]);
+  assert.equal(ids.has('73953827'), true);
+  assert.equal(ids.size, 1, 'interactive entries claim no job id');
+});
+
+test('a window parked on a running job leaves the grid at once', () => {
+  const store = createStore();
+  const { reconcile } = createReconciler({ store });
+  const window = { id: 'window', cwd: CWD, kind: 'background' };  // background: skips the transcript check
+  const job = { id: '73953827', sessionId: 'job', cwd: CWD, kind: 'background' };
+
+  reconcile([window], new Set());
+  assert.ok(store.raw('window'), 'a window on its own is a session');
+
+  reconcile([window, job], new Set(), new Map([['window', '73953827']]));
+  assert.equal(store.raw('window'), undefined, 'no second tile for the turn the job owns');
+  assert.ok(store.raw('job'), 'the job is the session now');
+});
+
+test('the parked flag is ignored once the job it names is gone', () => {
+  // Nothing clears parkedJobId when a job finishes, so believing it on its own
+  // would hide the window forever — the user types in that window.
+  const store = createStore();
+  const { reconcile } = createReconciler({ store });
+  const window = { id: 'window', cwd: CWD, kind: 'background' };
+
+  reconcile([window], new Set(), new Map([['window', '73953827']]));
+  assert.ok(store.raw('window'), 'stale park claim, no job listed');
+});
+
 // --- registry verdicts --------------------------------------------------------
 
 import { applyAgentState } from '../src/sessions/source-poller.js';

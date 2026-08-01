@@ -5,7 +5,7 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { POLL_INTERVAL_MS, RETIRE_AFTER_MISSED_POLLS, EMPTY_LISTING_GRACE_POLLS } from '../config.js';
+import { POLL_INTERVAL_MS, RETIRE_AFTER_MISSED_POLLS, EMPTY_LISTING_GRACE_POLLS, CLAUDE_DIR } from '../config.js';
 import { isOwnSession } from '../own-sessions.js';
 import { ensureTail, stopTail, transcriptPathFor } from './tails.js';
 import { log } from '../log.js';
@@ -96,6 +96,44 @@ export function parseForkParents(psOutput) {
   return parents;
 }
 
+// The registry says the same thing outright, and says it sooner. A window that
+// hands its turn to a background job gets `parkedJobId` written into its own
+// `~/.claude/sessions/<pid>.json` the moment the job is created — before the
+// job's process exists, let alone shows up in a listing or in ps. Reading it
+// closes the window in which the fork is real but undetectable, which is
+// exactly when both tiles were on the grid.
+//
+// It also catches the case ps cannot see at all: a window parked on a job that
+// was never forked from it has no `--fork-session` command line to parse.
+//
+// Nothing clears the field when the job ends, so it is only believed while the
+// job it names is still live (see liveJobIds). A window suppressed forever
+// would be a worse bug than the duplicate tile this removes.
+export function readParkedWindows(dir = path.join(CLAUDE_DIR, 'sessions')) {
+  const parked = new Map(); // sessionId -> jobId it is parked on
+  let names;
+  try { names = fs.readdirSync(dir); } catch { return parked; }
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue;
+    try {
+      const rec = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
+      if (rec.sessionId && rec.parkedJobId) parked.set(rec.sessionId, String(rec.parkedJobId));
+    } catch {}
+  }
+  return parked;
+}
+
+// Background entries carry their job id as `id` (short) alongside the full
+// `sessionId`. A parked window whose job is not in here is parked on nothing.
+export function liveJobIds(list) {
+  const ids = new Set();
+  for (const item of list || []) {
+    const jobId = pick(item, ['jobId', 'id'], null);
+    if (jobId) ids.add(String(jobId));
+  }
+  return ids;
+}
+
 // The listing arrives as whatever shape this CLI build prints. An array is the
 // listing; an object with an `agents`/`sessions` array is the listing wrapped.
 // Anything else — an error envelope, an update notice, an empty object — is
@@ -117,7 +155,7 @@ export function createReconciler({ store }) {
   const missCounts = new Map(); // id -> consecutive polls absent from the listing
   let emptyStreak = 0;          // consecutive fully-empty listings
 
-  function reconcile(list, parents) {
+  function reconcile(list, parents, parked = new Map()) {
     if (list.length === 0 && store.count() > 0) {
       emptyStreak += 1;
       if (emptyStreak <= EMPTY_LISTING_GRACE_POLLS) {
@@ -129,6 +167,7 @@ export function createReconciler({ store }) {
     }
 
     const current = new Set();
+    const jobs = liveJobIds(list);
     for (const item of list) {
       const id = pick(item, ['session_id', 'sessionId', 'id'], null);
       if (!id) continue;
@@ -154,8 +193,23 @@ export function createReconciler({ store }) {
       if (isViewport(item, id, cwd) && !hookTranscriptExists(store.raw(id))) continue;
       // A window whose conversation a background job forked is a viewport too:
       // the job owns the turn now, and this record can only ever show what the
-      // window looked like before it was handed off.
-      if (parents.has(id)) continue;
+      // window looked like before it was handed off. Same for a window the
+      // registry says is parked on a job that is still running.
+      //
+      // Absence from a listing is ambiguous and earns a grace period; this is
+      // not absence. The registry is vouching for the session and telling us,
+      // in the same breath, that another entry already represents its turn —
+      // so the tile goes now instead of sitting out RETIRE_AFTER_MISSED_POLLS
+      // as a second live-looking copy of a session already on the grid.
+      if (parents.has(id) || jobs.has(parked.get(id))) {
+        if (store.raw(id)) {
+          missCounts.delete(id);
+          stopTail(id);
+          store.remove(id);
+          log('PL', `park ${id.slice(0, 8)}: its turn belongs to a background job`);
+        }
+        continue;
+      }
       current.add(id);
       const startedAt = pick(item, ['startedAt', 'startedTs'], null);
       const isNew = !store.raw(id);
@@ -234,16 +288,17 @@ export function startPollerSource({ store }) {
   let warned = false;
   const { reconcile } = createReconciler({ store });
 
-  // Only the pids the registry just reported, so this stays one short ps per
-  // poll rather than a scan of every process on the machine. A job too new to be
-  // listed is missed for one interval, which costs a single stale snapshot.
-  function forkParents(list, done) {
-    const pids = list
-      .map((item) => pick(item, ['pid'], null))
-      .filter((p) => Number.isInteger(p) && p > 0);
-    if (!pids.length) return done(new Set());
-    execFile('ps', ['-o', 'command=', '-p', pids.join(',')], { timeout: 5_000 }, (err, out) => {
-      // Every pid gone is an error from ps, not a reason to drop the poll.
+  // Every process, not `ps -p <the pids the registry just listed>`. That
+  // narrower call looked cheaper and was quietly unreliable: macOS ps prints
+  // *nothing* and exits 1 if any single pid in the list is already gone, so one
+  // session exiting in the ~50ms between the listing and the ps wiped the whole
+  // parent set — and every parked window on the machine reappeared as a second
+  // tile until two clean polls retired it again. Short-lived `claude`
+  // invocations (the daemon's own usage poll among them) make that race
+  // routine. A full ps is ~50ms of one core every three seconds and cannot be
+  // spoiled by a pid dying mid-poll.
+  function forkParents(done) {
+    execFile('ps', ['-A', '-o', 'command='], { timeout: 5_000 }, (err, out) => {
       done(parseForkParents(err ? '' : out));
     });
   }
@@ -274,7 +329,7 @@ export function startPollerSource({ store }) {
       }
       warned = false;
 
-      forkParents(list, (parents) => reconcile(list, parents));
+      forkParents((parents) => reconcile(list, parents, readParkedWindows()));
     });
   }
 
