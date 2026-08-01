@@ -10,13 +10,23 @@ import { createQueue } from './queue.js';
 import { createUsage } from './usage.js';
 import { log } from './log.js';
 
-const hub = createHub();
+// Broadcast the whole waiting list whenever a client turns up, so a screen that
+// watched the last daemon die stops showing asks this one has never heard of.
+// Not a response to the new client alone: every screen behind the same relay is
+// just as stale, and the list is small.
+const hub = createHub({ onHello: () => hub.emit('claude.queue.sync', queueSnapshot()) });
 const store = createStore();
 const focus = createFocus();
 const queue = createQueue({ emit: hub.emit, store, focus });
 const permissionBridge = createPermissionBridge({ emit: hub.emit, store, queue });
 const usage = createUsage({ emit: hub.emit });
 const sources = createSources({ store, permissionBridge, queue });
+
+function queueSnapshot() {
+  return {
+    asks: [...permissionBridge.list(), ...queue.list()].sort((a, b) => a.createdTs - b.createdTs),
+  };
+}
 
 store.onSnapshot = (snap) => hub.emit('claude.sessions.update', snap);
 store.onDetail = (detail) => hub.emit('claude.session.update', detail);
@@ -34,9 +44,7 @@ hub.setMethods({
   }),
 
   // everything waiting on a human, for clients that connect mid-flight
-  'claude.queue.list': async () => ({
-    asks: [...permissionBridge.list(), ...queue.list()].sort((a, b) => a.createdTs - b.createdTs),
-  }),
+  'claude.queue.list': async () => queueSnapshot(),
   'claude.question.answer': async ({ id, optionIndex }) => queue.answerQuestion(id, optionIndex),
 
   // bring a session's terminal window to the front, as if it were clicked

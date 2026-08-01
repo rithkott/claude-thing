@@ -577,11 +577,22 @@ function onResolved(id, resolution) {
   }
 }
 
+// The daemon's whole waiting list, pushed when any client connects. This is
+// what clears cards left behind by a daemon that restarted: on hardware the
+// device's own socket is to the connector and never dropped, so nothing else
+// tells this screen the queue it is showing belongs to a dead process.
+ws.on('claude.queue.sync', function (d) { store.reconcileAsks((d && d.asks) || []); });
+
 ws.on('claude.permission.resolved', function (p) { onResolved(p.requestId, p.resolution); });
 ws.on('claude.question.resolved', function (q) { onResolved(q.id, q.resolution); });
 
 ws.on('claude.daemon.status', function (s) {
+  var was = store.get().daemonConnected;
   store.update({ daemonConnected: !!s.connected });
+  // The socket to the connector survives a daemon restart, so this is the only
+  // signal that the queue on the other side is a new one. Re-sync, or the asks
+  // from before the restart stay on screen with nothing able to resolve them.
+  if (!was && s.connected) syncQueue(false);
 });
 
 // ---- bluetooth events -------------------------------------------------------
@@ -640,6 +651,21 @@ ws.on('bluetooth.discoverable', function (d) {
 
 // ---- boot -------------------------------------------------------------------
 
+// Take the daemon's word for what is still waiting. Called on connect and every
+// time the daemon comes back, because a daemon that restarted has forgotten
+// every ask it ever sent while this screen kept showing them.
+function syncQueue(jumpIfIdle) {
+  ws.request('claude.queue.list', {}).then(function (res) {
+    var asks = res.asks || [];
+    store.reconcileAsks(asks);
+    if (jumpIfIdle && asks.length && route().name === 'list') {
+      returnTo = '#/list';
+      if (asks[0].kind === 'question') nav('#/queue');
+      else nav('#/ask/' + asks[0].id);
+    }
+  }).catch(function () {});
+}
+
 ws.onOpen(function () {
   ws.request('claude.sessions.list', {}).then(function (snap) {
     store.update({ daemonConnected: true });
@@ -648,16 +674,7 @@ ws.onOpen(function () {
     store.update({ daemonConnected: false });
   });
 
-  // anything already waiting before this app loaded
-  ws.request('claude.queue.list', {}).then(function (res) {
-    var asks = res.asks || [];
-    for (var i = 0; i < asks.length; i++) store.pushAsk(asks[i]);
-    if (asks.length && route().name === 'list') {
-      returnTo = '#/list';
-      if (asks[0].kind === 'question') nav('#/queue');
-      else nav('#/ask/' + asks[0].id);
-    }
-  }).catch(function () {});
+  syncQueue(true);
 
   ws.request('claude.usage.get', {}).then(function (u) {
     store.update({ usage: u });
