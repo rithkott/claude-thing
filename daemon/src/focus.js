@@ -40,16 +40,44 @@ function ps(args) {
   });
 }
 
-// session_id -> {pid, cwd, kind, name} from Claude Code's own registry
-export function lookupSession(sessionId) {
+function readRegistry(dir = SESSIONS_DIR) {
   let names;
-  try { names = fs.readdirSync(SESSIONS_DIR); } catch { return null; }
+  try { names = fs.readdirSync(dir); } catch { return []; }
+  const out = [];
   for (const name of names) {
     if (!name.endsWith('.json')) continue;
     try {
-      const rec = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, name), 'utf8'));
-      if (rec.sessionId === sessionId) return rec;
+      out.push(JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')));
     } catch {}
+  }
+  return out;
+}
+
+// session_id -> {pid, cwd, kind, name} from Claude Code's own registry
+export function lookupSession(sessionId, dir = SESSIONS_DIR) {
+  for (const rec of readRegistry(dir)) {
+    if (rec.sessionId === sessionId) return rec;
+  }
+  return null;
+}
+
+// A background job is not always windowless. When an interactive session hands
+// its turn to one it writes `parkedJobId` into its own registry file, and while
+// parked that window *is* the job's UI — the question the device is answering is
+// on screen there. So before declaring a background agent unfocusable, look for
+// the window parked on it and raise that instead.
+//
+// The job id is the short form of the background session's id, carried as
+// `jobId`; older records only have the sessionId, hence the prefix match.
+export function hostWindowFor(rec, dir = SESSIONS_DIR) {
+  if (!rec) return null;
+  const jobId = String(rec.jobId || '');
+  const sid = String(rec.sessionId || '');
+  if (!jobId && !sid) return null;
+  for (const other of readRegistry(dir)) {
+    if (other.kind !== 'interactive' || !other.parkedJobId) continue;
+    const parked = String(other.parkedJobId);
+    if (parked === jobId || parked === sid || (parked && sid.startsWith(parked))) return other;
   }
   return null;
 }
@@ -103,13 +131,26 @@ export function createFocus() {
   async function focusSession(sessionId) {
     const rec = lookupSession(sessionId);
     if (!rec) return { focused: false, reason: 'no session registry entry' };
-    if (rec.kind && rec.kind !== 'interactive') {
-      return { focused: false, reason: 'background agent — no window to focus' };
-    }
-    const tty = await ttyFor(rec.pid);
-    if (!tty) return { focused: false, reason: 'session has no tty' };
 
-    const app = await ownerApp(rec.pid);
+    // A background job borrows the window that parked on it, if one did.
+    let target = rec;
+    let viaHost = false;
+    if (rec.kind && rec.kind !== 'interactive') {
+      const host = hostWindowFor(rec);
+      if (!host) return { focused: false, reason: 'background agent — no window to focus' };
+      target = host;
+      viaHost = true;
+    }
+
+    const tty = await ttyFor(target.pid);
+    if (!tty) {
+      return {
+        focused: false,
+        reason: viaHost ? 'background agent — parked window is gone' : 'session has no tty',
+      };
+    }
+
+    const app = await ownerApp(target.pid);
     if (app && app !== 'Terminal') {
       // Only Terminal.app exposes tty per tab; raise the app and say so.
       const r = await osa(`tell application "${app}" to activate`);
@@ -130,8 +171,13 @@ export function createFocus() {
       return { focused: false, reason: r.error };
     }
     if (r.out !== 'true') return { focused: false, reason: 'no Terminal tab owns that tty' };
-    log('FC', `focused ${rec.name || sessionId.slice(0, 8)} (${tty})`);
-    return { focused: true, app: 'Terminal', exact: true, tty };
+    log('FC', `focused ${target.name || sessionId.slice(0, 8)} (${tty})${viaHost ? ' [parked host]' : ''}`);
+    // Typing is only synthesized into a window we know is showing this exact
+    // session's prompt. A parked window is showing the job — but the daemon
+    // cannot see what is on screen there, so it hands the keypress to the human.
+    return viaHost
+      ? { focused: true, app: 'Terminal', exact: false, tty, viaHost: true, reason: 'parked window raised' }
+      : { focused: true, app: 'Terminal', exact: true, tty };
   }
 
   // Types a single character into the focused window. Requires Automation →
