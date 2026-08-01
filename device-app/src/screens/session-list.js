@@ -5,7 +5,7 @@ import { esc, topbar, stateLabel, fmtDuration } from './helpers.js';
 // selected tile stays on screen — any number of sessions fits.
 var ROWS = 2;
 var COLS_VISIBLE = 2;
-var COL_STEP = 392;   // 384px tile + 8px gap (see .gridtrack)
+var COL_STEP = 380;   // 372px tile + 8px gap (see .gridtrack)
 
 var scrollCol = 0;   // leftmost visible column
 
@@ -30,21 +30,12 @@ export function renderList(state) {
   }
 
   var offset = scrollCol * COL_STEP;
-  // The rail is always in the layout so the bottom row keeps the same gap
-  // whether or not the set scrolls; only the thumb comes and goes.
-  var thumb = '';
-  if (totalCols > COLS_VISIBLE) {
-    var frac = COLS_VISIBLE / totalCols;
-    var pos = scrollCol / totalCols;
-    thumb = '<span class="gthumb" style="width:' + (frac * 100).toFixed(2) +
-      '%;left:' + (pos * 100).toFixed(2) + '%"></span>';
-  }
-  var rail = '<div class="grail' + (thumb ? '' : ' blank') + '">' + thumb + '</div>';
-
+  // No scrollbar: the next column's edge peeking past the right bezel is the
+  // affordance (see .gridwrap), and it costs no vertical space on a 480px panel.
   return '<div class="screen">' +
     topbar('SESSIONS', state.daemonConnected, String(state.sessions.length)) +
     '<div class="gridwrap"><div class="gridtrack" style="transform:translateX(-' + offset + 'px)">' +
-    tiles + '</div></div>' + rail + '</div>';
+    tiles + '</div></div></div>';
 }
 
 function tile(s, selected, state) {
