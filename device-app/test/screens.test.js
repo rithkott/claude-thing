@@ -425,6 +425,20 @@ test('an answering hero shows every option in place, one selected', () => {
   assert.doesNotMatch(html, /qchip/, 'the action chip gave way to the list');
 });
 
+test('the selected option expands: label stacks over description, both in full', () => {
+  const html = renderQueue(baseState({
+    asks: [questionAsk()], queueAnswering: true, queueChoice: 0,
+  }));
+  // Only the row under the cursor gets the stacked qtext wrapper; the CSS
+  // wraps its text instead of clipping it.
+  assert.equal((html.match(/class="qtext"/g) || []).length, 1,
+    'exactly one row is expanded');
+  assert.match(html, /qopt selected"[^>]*data-id="0"[^>]*>.*?class="qtext"/,
+    'and it is the selected one');
+  const collapsed = /qopt" data-action="queue-choice" data-id="1"><span class="qnum">2<\/span><span class="qlabel">/;
+  assert.match(html, collapsed, 'unselected rows keep the flat one-line shape');
+});
+
 test('while the list is open the stack hides but the queue context survives', () => {
   const html = renderQueue(baseState({
     asks: [questionAsk(), questionAsk({ id: 'q2' }), questionAsk({ id: 'q3' })],

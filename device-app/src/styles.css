@@ -616,9 +616,36 @@ html, body {
   background: var(--panel);
 }
 .qhero .qopt + .qopt { margin-top: 6px; }
+/* The row under the cursor grows and lets its text wrap: what you are about
+   to commit to is read in full, not guessed from an ellipsis. The others
+   compress to clipped single lines — they only need to be recognisable. */
 .qhero .qopt.selected {
   border-color: var(--accent);
   background: var(--card);
+  flex: 2.6 1 0;
+  max-height: 160px;
+  padding: 8px 14px;
+  overflow: hidden;
+}
+.qhero .qtext {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+}
+.qhero .qopt.selected .qlabel {
+  max-width: none;
+  white-space: normal;
+  line-height: 1.15;
+}
+.qhero .qopt.selected .qdesc {
+  flex: 0 1 auto;
+  margin-left: 0;
+  margin-top: 3px;
+  white-space: normal;
+  line-height: 1.3;
 }
 .qhero .qnum {
   flex-shrink: 0;
