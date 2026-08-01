@@ -22,9 +22,16 @@ export function createPermissionBridge({ emit, store, queue }) {
   // salient argument.
   function summarizeTool(toolName, toolInput) {
     if (!toolInput) return toolName;
-    const t = toolInput.command || toolInput.file_path || toolInput.url ||
-      toolInput.path || toolInput.pattern || JSON.stringify(toolInput);
-    return String(t).slice(0, 200);
+    const known = toolInput.command || toolInput.file_path || toolInput.url ||
+      toolInput.path || toolInput.pattern;
+    if (known) return String(known).slice(0, 200);
+    // A tool we have no salient key for still has to read as English on a
+    // 800x480 screen. Stringifying the whole input put a truncated blob of
+    // JSON in the card body, so prefer any string field, then the key names.
+    const text = Object.values(toolInput).find((v) => typeof v === 'string' && v.trim());
+    if (text) return text.slice(0, 200);
+    const keys = Object.keys(toolInput);
+    return keys.length ? keys.join(', ').slice(0, 200) : toolName;
   }
 
   function finish(requestId, resolution, behavior) {
@@ -46,16 +53,25 @@ export function createPermissionBridge({ emit, store, queue }) {
 
   // Called by http-server with the parsed hook payload + held response object.
   function onHookRequest(payload, res) {
-    // Plan approval is not answerable through this hook: Claude Code ignores
-    // the decision for ExitPlanMode and keeps its dialog up (verified
-    // v2.1.220), so holding the request only makes the device tile lie.
-    // Answer "ask" immediately and surface the plan as a question instead.
-    if (queue && payload.tool_name === 'ExitPlanMode') {
+    // Two tools are dialogs, not permissions, and both already reach the
+    // device through the question queue:
+    //   • ExitPlanMode — Claude Code ignores the decision for it and keeps its
+    //     dialog up (verified v2.1.220), so holding only makes the tile lie.
+    //     The plan is surfaced here, since no other hook carries it.
+    //   • AskUserQuestion — the PreToolUse hook already queued the real
+    //     multiple-choice card (sessions/source-hooks.js). Holding a
+    //     permission for the same call put a second card on the device whose
+    //     body was the stringified questions array, and denying it killed the
+    //     question before the user could answer the card that mattered.
+    // Both answer "ask" at once and leave the interaction to the question path.
+    if (queue && (payload.tool_name === 'ExitPlanMode' || payload.tool_name === 'AskUserQuestion')) {
       try {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(hookDecision('ask'));
       } catch {}
-      queue.onPlanApproval(payload);
+      // Only the plan needs queueing — re-queueing the question here would
+      // duplicate the PreToolUse ask under a second id.
+      if (payload.tool_name === 'ExitPlanMode') queue.onPlanApproval(payload);
       return;
     }
 
