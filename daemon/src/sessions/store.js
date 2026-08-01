@@ -10,6 +10,7 @@ import { contextFraction } from '../context-window.js';
 
 export function createStore() {
   const sessions = new Map(); // id -> internal record
+  let wakeCounter = 0;        // strictly increasing wake order for live sessions
   let snapshotTimer = null;
   let onSnapshot = () => {};
   let onDetail = () => {};
@@ -72,10 +73,35 @@ export function createStore() {
     };
   }
 
+  // Ordering by raw activity alone made the list thrash: every hook fire on any
+  // live session bounced it to the front, so a screen with three working
+  // sessions reshuffled every few seconds and the tile you were reaching for
+  // moved out from under your finger. A session may now only overtake *idle*
+  // sessions. Live ones hold the order they woke up in — the mark is taken on
+  // the idle->live edge and then left alone however much the session works —
+  // and idle ones stay newest-first behind them. The mark is a counter rather
+  // than a clock because several sessions can wake inside one millisecond and
+  // still need a definite order between them.
+  function markWake(s, state) {
+    if (state === 'idle') s.wakeSeq = 0;
+    else if (!s.wakeSeq) s.wakeSeq = ++wakeCounter;
+  }
+
   function snapshot(limit) {
-    const ordered = [...sessions.values()].sort((a, b) => b.lastActivityTs - a.lastActivityTs);
+    const rows = [...sessions.values()].map((s) => {
+      const view = summary(s);
+      markWake(s, view.state);
+      return { s, view };
+    });
+    rows.sort((a, b) => {
+      const aIdle = a.view.state === 'idle';
+      const bIdle = b.view.state === 'idle';
+      if (aIdle !== bIdle) return aIdle ? 1 : -1;
+      if (!aIdle) return a.s.wakeSeq - b.s.wakeSeq;
+      return b.view.lastActivityTs - a.view.lastActivityTs;
+    });
     const cap = limit || SESSION_CAP;   // 0 = unbounded
-    const list = (cap > 0 ? ordered.slice(0, cap) : ordered).map(summary);
+    const list = (cap > 0 ? rows.slice(0, cap) : rows).map((r) => r.view);
     const stats = {
       active: list.filter((s) => s.state === 'busy').length,
       attention: list.filter((s) => s.state === 'attention').length,
