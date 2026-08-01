@@ -278,6 +278,12 @@ html, body {
   /* no will-change here: a layer per tile name exhausts the Amlogic's
      compositor budget; marquee() promotes only the names that scroll */
 }
+/* Offscreen columns (see session-list.js): no sprite stepping, no lamp
+   breathing, no marquee — the panel never shows them, the CPU still paid.
+   !important because marquee() sets its animation inline. */
+.tile.off .sprite,
+.tile.off .lamp,
+.tile.off .tnamei { animation: none !important; }
 .tile.state-idle .tnamei { color: var(--muted); }
 /* Dwell at each end so a name is readable at rest, not only mid-slide. The
    distance is set per tile in main.js — CSS can't know how far it overflows. */

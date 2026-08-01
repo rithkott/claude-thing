@@ -323,6 +323,11 @@ function connectWs() {
     everConnected = true;
   };
   ws.onmessage = (m) => {
+    // This socket rides the same mock-nocturned broadcast as the device
+    // iframe, so every claude.* frame arrives here too. The only topics this
+    // shell cares about are emulator.* — cheap substring check before paying
+    // for a JSON.parse of every session snapshot twice per event.
+    if (typeof m.data !== 'string' || m.data.indexOf('"emulator.') === -1) return;
     let f;
     try { f = JSON.parse(m.data); } catch { return; }
     if (f.type !== 'event') return;
