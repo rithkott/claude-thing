@@ -348,10 +348,13 @@ html, body {
   border-radius: 4px;
   background: var(--dim);
   transition: width 0.4s ease-out;
+  /* Clips the dark label copy at the fill's own edge (see below). */
+  overflow: hidden;
 }
-/* The track carries its own label. Each part flips to the dark ink once the
-   fill has grown under it — the word first, the number a little later — set
-   per-span in session-list.js so a repaint only happens on a real change. */
+/* The track carries its own label, drawn twice: light ink on the bare track,
+   and a dark copy inside the fill, whose overflow clip cuts it off exactly
+   where the fill ends. Each glyph flips ink at the pixel the fill reaches it,
+   so the label never sits fill-on-fill and the fill edge stays visible. */
 .tile .ctxtext {
   position: absolute;
   left: 8px;
@@ -362,6 +365,7 @@ html, body {
   font-weight: 700;
   font-size: 10px;
   letter-spacing: .18em;
+  white-space: nowrap;
 }
 .tile .ctxword { color: var(--dim); }
 .tile .ctxnum {
@@ -369,8 +373,10 @@ html, body {
   letter-spacing: .06em;
   color: var(--bone);
 }
-.tile .ctxword.over,
-.tile .ctxnum.over { color: var(--bg-deep); }
+/* The dark copy: same geometry, anchored to the track's left edge (the fill
+   starts at 0, so left:8px lands on the same pixel), ink for both parts. */
+.tile .ctxtext.dark .ctxword,
+.tile .ctxtext.dark .ctxnum { color: var(--bg-deep); }
 .tile .ctx.hot .ctxfill { background: var(--danger); }
 
 /* ---- 8-bit mascot -------------------------------------------------------

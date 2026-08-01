@@ -93,12 +93,17 @@ function meterBlock(s) {
   if (model) html += '<div class="tmodel">' + esc(model) + '</div>';
   if (s.context != null) {
     var pct = Math.max(0, Math.min(1, s.context));
-    // The label rides on top of the fill: each part takes the dark ink once
-    // the bar has grown under it, the word first, the number a little later.
+    // The label is drawn twice: light ink on the bare track underneath, and a
+    // dark copy inside the fill, which clips it at its own edge. Each glyph
+    // flips ink at the exact pixel the fill passes it — a single per-span
+    // threshold left the word fill-on-fill while the bar was partway under it,
+    // and hid where the fill actually ended.
+    var label = '<span class="ctxword">CONTEXT</span>' +
+      '<span class="ctxnum">' + Math.round(pct * 100) + '%</span>';
     html += '<div class="ctxtrack">' +
-      '<span class="ctxfill" style="width:' + (pct * 100).toFixed(1) + '%"></span>' +
-      '<span class="ctxtext"><span class="ctxword' + (pct > 0.16 ? ' over' : '') + '">CONTEXT</span>' +
-      '<span class="ctxnum' + (pct > 0.34 ? ' over' : '') + '">' + Math.round(pct * 100) + '%</span></span>' +
+      '<span class="ctxtext">' + label + '</span>' +
+      '<span class="ctxfill" style="width:' + (pct * 100).toFixed(1) + '%">' +
+      '<span class="ctxtext dark">' + label + '</span></span>' +
       '</div>';
   }
   return html + '</div>';
