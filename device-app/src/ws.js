@@ -3,6 +3,8 @@
 // every client — filter by our own pending ids), exponential-backoff
 // reconnect. This app never sends reset_boot_counter — the boot UI owns that.
 
+import { unbool } from './numbers.js';
+
 var socket = null;
 var pending = {};            // id -> {resolve, reject, timer}
 var topicListeners = {};     // topic -> [fn]
@@ -28,6 +30,7 @@ function connect() {
   socket.onmessage = function (m) {
     var f;
     try { f = JSON.parse(m.data); } catch (e) { return; }
+    unbool(f.type === 'response' ? f.result : f.data);
     if (f.type === 'event' && f.topic) {
       var fns = topicListeners[f.topic] || [];
       for (var i = 0; i < fns.length; i++) fns[i](f.data, f);
