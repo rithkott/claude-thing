@@ -1,4 +1,5 @@
 import { esc, topbar, stateLabel, fmtDuration } from './helpers.js';
+import { now } from '../clock.js';
 
 // Sideways-scrolling grid: two rows, columns flow to the right without limit.
 // The dial walks sessions in column-major order and the track slides so the
@@ -73,7 +74,7 @@ function subline(s, state) {
   if (s.pendingPermission) return 'needs your answer';
   if (d && d.currentTool) return d.currentTool + ' · ' + (d.lastMessage || '');
   if (s.state === 'celebrate' && s.lastActivityTs) {
-    return 'finished ' + fmtDuration(Date.now() - s.lastActivityTs) + ' ago';
+    return 'finished ' + fmtDuration(now() - s.lastActivityTs) + ' ago';
   }
   if (d && d.lastMessage) return d.lastMessage;
   return s.state === 'busy' ? 'working…' : '';

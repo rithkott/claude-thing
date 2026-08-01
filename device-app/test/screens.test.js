@@ -4,7 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { esc, fmtTokens, fmtDuration, fmtClock, setTzOffset, stateLabel } from '../src/screens/helpers.js';
+import { esc, fmtTokens, fmtDuration, stateLabel } from '../src/screens/helpers.js';
+import { fmtClock, setTzOffset, setServerNow, now, resetClock } from '../src/clock.js';
 import { renderList } from '../src/screens/session-list.js';
 import { renderQueue } from '../src/screens/queue.js';
 import { renderUsage } from '../src/screens/usage.js';
@@ -46,6 +47,32 @@ test('clock renders daemon-local time from the snapshot offset, UTC-clock proof'
   setTzOffset(undefined);                              // old daemon: fall back to local
   const local = new Date(2026, 6, 31, 9, 7);
   assert.equal(fmtClock(local), '9:07 AM');
+  resetClock();
+});
+
+// The device has no RTC battery and never sees NTP, so its epoch is junk. Every
+// timestamp it renders against — createdTs, startedTs — came from the Mac, so
+// without this correction the wall clock is wrong and every duration with it.
+test('the daemon epoch corrects a device clock that is hours off', () => {
+  const deviceDrift = 3 * 60 * 60_000 + 47_000;        // device believes it is 3h47s ago
+  setServerNow(Date.now() + deviceDrift);
+  assert.ok(Math.abs(now() - (Date.now() + deviceDrift)) < 1000, 'now() runs on Mac time');
+
+  // Rendered through a fixed offset the clock is then absolute, not relative to
+  // whatever the device booted with.
+  setTzOffset(240);
+  const wall = new Date(Date.UTC(2026, 6, 31, 18, 5));
+  assert.equal(fmtClock(wall), '2:05 PM');
+
+  // Relay jitter must not walk the clock; a real correction still lands.
+  const before = now();
+  setServerNow(Date.now() + deviceDrift + 300);
+  assert.ok(Math.abs(now() - before) < 1000, 'sub-second noise is ignored');
+  setServerNow(Date.now());
+  assert.ok(Math.abs(now() - Date.now()) < 1000, 'a real resync applies');
+
+  resetClock();
+  assert.ok(Math.abs(now() - Date.now()) < 1000, 'unsynced falls back to the device clock');
 });
 
 test('durations read as h/m', () => {

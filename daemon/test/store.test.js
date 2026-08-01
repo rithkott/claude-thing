@@ -96,6 +96,16 @@ test('snapshot honours an explicit limit for constrained transports', () => {
   assert.equal(store.snapshot(5).sessions.length, 5);
 });
 
+// The device's own clock is wrong in both axes, so the snapshot is the only
+// place it learns what time it actually is.
+test('every snapshot carries the Mac epoch and UTC offset', () => {
+  const store = createStore();
+  store.touch('a', { name: 'proj' });
+  const snap = store.snapshot();
+  assert.ok(Math.abs(snap.serverNowMs - Date.now()) < 1000, 'Mac epoch, freshly read');
+  assert.equal(snap.tzOffsetMin, new Date().getTimezoneOffset());
+});
+
 test('stats count busy and attention sessions', () => {
   const store = createStore();
   store.touch('busy1', { name: 'a' });

@@ -1,4 +1,5 @@
 import { esc } from './helpers.js';
+import { now } from '../clock.js';
 
 // Fullscreen prompt view — the focused answer screen, opened from a session or
 // from the queue. Unlike the queue this one keeps a countdown, because here you
@@ -25,14 +26,14 @@ function head(ask, label, klass) {
 
 function fractionLeft(ask) {
   if (!ask.timeoutMs || ask.expired) return null;
-  var left = ask.createdTs + ask.timeoutMs - Date.now();
+  var left = ask.createdTs + ask.timeoutMs - now();
   return Math.max(0, Math.min(1, left / ask.timeoutMs));
 }
 
 function countdown(ask) {
   var frac = fractionLeft(ask);
   if (frac === null) return '';
-  var secs = Math.round((ask.createdTs + ask.timeoutMs - Date.now()) / 1000);
+  var secs = Math.round((ask.createdTs + ask.timeoutMs - now()) / 1000);
   return '<div class="cdtrack"><span class="cdfill' + (secs <= 10 ? ' urgent' : '') +
     '" style="width:' + (frac * 100).toFixed(1) + '%"></span></div>';
 }
@@ -40,7 +41,7 @@ function countdown(ask) {
 function remaining(ask) {
   var frac = fractionLeft(ask);
   if (frac === null) return '';
-  var secs = Math.max(0, Math.round((ask.createdTs + ask.timeoutMs - Date.now()) / 1000));
+  var secs = Math.max(0, Math.round((ask.createdTs + ask.timeoutMs - now()) / 1000));
   var text = secs >= 60 ? Math.round(secs / 60) + 'm left' : secs + 's left';
   return '<span class="cdtime' + (secs <= 10 ? ' urgent' : '') + '">' + text + '</span>';
 }

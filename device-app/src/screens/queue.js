@@ -1,4 +1,5 @@
 import { esc, topbar } from './helpers.js';
+import { now } from '../clock.js';
 
 // Triage, not a list of equals: the ask you would answer next owns the page and
 // carries its own actions, so a permission can be allowed without ever leaving
@@ -99,6 +100,6 @@ function summarize(a) {
 // deadline belongs, because that is where you are acting against it.
 function waitLabel(a) {
   if (a.expired) return 'in terminal';
-  var secs = Math.max(0, Math.round((Date.now() - a.createdTs) / 1000));
+  var secs = Math.max(0, Math.round((now() - a.createdTs) / 1000));
   return 'waiting ' + (secs < 60 ? secs + 's' : Math.round(secs / 60) + 'm');
 }

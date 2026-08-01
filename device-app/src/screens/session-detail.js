@@ -1,4 +1,5 @@
 import { esc, topbar, fmtTokens, fmtDuration, stateLabel } from './helpers.js';
+import { now } from '../clock.js';
 
 // Same reading as the tile, with room for the number to breathe. Absent when
 // the daemon can't work the fraction out — no meter beats a made-up one.
@@ -21,7 +22,7 @@ export function renderDetail(state, id) {
   var meta = [
     d.cwd ? d.cwd.split('/').pop() : null,
     d.model ? d.model.replace(/^claude-/, '') : null,
-    d.startedTs ? fmtDuration(Date.now() - d.startedTs) : null,
+    d.startedTs ? fmtDuration(now() - d.startedTs) : null,
   ];
   var metaStr = [];
   for (var i = 0; i < meta.length; i++) if (meta[i]) metaStr.push(meta[i]);

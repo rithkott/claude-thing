@@ -40,7 +40,7 @@ connected clients.
 | Method | Params | Result |
 |---|---|---|
 | `claude.ping` | `{}` | `{daemonVersion, sessions:<n>}` |
-| `claude.sessions.list` | `{limit?}` | `{sessions:[SessionSummary], stats:Stats, tzOffsetMin}` — unbounded unless `limit` given |
+| `claude.sessions.list` | `{limit?}` | `{sessions:[SessionSummary], stats:Stats, serverNowMs, tzOffsetMin}` — unbounded unless `limit` given |
 | `claude.session.get` | `{id}` | `SessionDetail` (error `"unknown session"` if gone) |
 | `claude.permission.answer` | `{requestId, decision:"allow"\|"deny"}` | `{accepted:bool}` — idempotent; `false` when already resolved |
 | `claude.queue.list` | `{}` | `{asks:[Ask]}` — everything waiting on a human, oldest first |
@@ -52,7 +52,7 @@ connected clients.
 
 | Topic | Data | Notes |
 |---|---|---|
-| `claude.sessions.update` | `{sessions:[SessionSummary], stats:Stats, tzOffsetMin}` | full idempotent snapshot of ALL sessions, debounced 500 ms. `tzOffsetMin` = the Mac's `Date.getTimezoneOffset()`; the device clock is UTC and renders Mac-local time from it |
+| `claude.sessions.update` | `{sessions:[SessionSummary], stats:Stats, serverNowMs, tzOffsetMin}` | full idempotent snapshot of ALL sessions, debounced 500 ms. The device's clock is wrong in both axes — no RTC battery, no NTP, no timezone data — so it takes both from here: `serverNowMs` = the Mac's `Date.now()`, the epoch every device-side duration and countdown is measured against; `tzOffsetMin` = the Mac's `Date.getTimezoneOffset()`, which renders it as local time. Not the frame's `server_timestamp_ms` — nocturned re-stamps relayed frames with the device clock |
 | `claude.session.update` | `SessionDetail` | pushed on change for any live session |
 | `claude.permission.request` | `{requestId, sessionId, tool, summary, createdTs, timeoutMs}` | timeoutMs = 55000 |
 | `claude.permission.resolved` | `{requestId, resolution:"allow"\|"deny"\|"timeout"}` | closes prompt everywhere; terminal-answered too |
