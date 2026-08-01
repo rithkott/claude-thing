@@ -41,19 +41,17 @@ Mode switch: hold **preset 1 + preset 4** for one second. Sticky across reboots.
 
 ## Install
 
-Grab both files from the [latest release](https://github.com/rithkott/claude-thing/releases/latest).
-
 **1. The Mac daemon** — needs Node 18+ and Claude Code on your `PATH`.
 
 ```sh
 git clone https://github.com/rithkott/claude-thing.git
 cd claude-thing && ./mac/install.sh
 ```
-
 Installs dependencies, builds the control page and device app, merges the Claude
 Code hooks into `~/.claude/settings.json` (backup written first), and loads a
 LaunchAgent. Control page: <http://127.0.0.1:8790>. `./mac/uninstall.sh` reverses
 all of it. `--no-agent` skips the LaunchAgent.
+
 
 **2. `Nocturne-claude-*.dmg`** — Nocturne.app with the `claude.*` relay, which is
 what carries traffic between the device and the daemon. Drag it to Applications,
@@ -63,59 +61,22 @@ then:
 xattr -cr /Applications/Nocturne.app
 ```
 
-It's ad-hoc signed rather than notarized, so macOS blocks it without that. Launch
-it and turn on **Settings → Claude Mode → Claude Code relay**.
+It's ad-hoc signed rather than notarized, so macOS blocks it without that.
+An alternative is to open it without doing that, then go to System Settings -> Privacy and Security. Scroll to the bottom and click Open Anyway
+
+Launch it and turn on **Settings → Claude Mode → Claude Code relay**.
+
 
 **3. `nocturne_*_claude.zip`** — flash with [Terbium](https://terbium.app) in
-Chrome. Hold **preset 4** while plugging in USB-C to enter burn mode. Then pair
-the Car Thing in **System Settings → Bluetooth**.
+Chrome. 
+
+Hold **preset 1 and preset 4** while plugging in USB-C to enter burn mode. Follow the instructions in Terbium. When it's time to select firmware, click local archive and drag in the zip file, and flash.
+
+Car thing enters pairing mode automatically when first plugged in, connect from your Mac's Bluetooth menu.
 
 The control page should show *Nocturne connector* relaying, and holding
 preset 1 + preset 4 on the device should bring up your sessions.
 
-### Run the emulator instead
-
-```sh
-node emulator/scripts/deploy-dev.js
-```
-
-Finds your newest firmware zip, grafts the Claude app in, starts the daemon, and
-opens a clickable Car Thing faceplate in Chrome. `CLAUDE_THING_MOCK=1` adds fake
-sessions plus a scripted permission every 60s, which is the quickest way to see
-the queue work.
-
----
-
-## Building it yourself
-
-Needs `brew install e2fsprogs` for firmware work, Docker for the daemon, Xcode
-for the Mac app.
-
-```sh
-./scripts/build-nocturned.sh        # the device daemon, cross-compiled (~90s)
-node scripts/inject-firmware.js --nocturned dist/nocturned
-./scripts/build-connector-dmg.sh    # Nocturne.app + relay → dist/*.dmg
-```
-
-`inject-firmware.js` takes any Nocturne zip containing `system_a.ext2` (newest
-in `firmware/`, `~/Desktop` or `~/Downloads` by default; `--zip` and `--out`
-override). It adds the app at `/etc/nocturne/ui/claude` in **both** rootfs slots,
-grafts the mode-switch script into the music UI, and swaps in the daemon. The
-source zip is never modified.
-
-Why a rebuilt daemon is needed at all: `nocturned` forwards an exact allow-list
-of method names from the device to the Mac, and `claude.*` isn't on it. It's
-compiled Rust, so unlike the web app it can't be patched by file injection. The
-one-line change is [`patches/nocturned-claude-forward.patch`](patches/nocturned-claude-forward.patch);
-`build-nocturned.sh` applies it, cross-compiles to armv7, and verifies the result
-against the device's ABI before you flash anything. A full Buildroot firmware
-build is the alternative — hours instead of seconds, but one toolchain
-throughout.
-
-Also in [`patches/`](patches/): the Swift relay, and an optional Claude Mode
-entry for nocturne-ui's settings menu.
-
----
 
 ## Repo layout
 
