@@ -96,14 +96,24 @@ function scheduleRender() {
 // between the two moves with every name.
 function marquee() {
   var names = app.querySelectorAll('[data-marquee]');
+  // All reads, then all writes: interleaving them forces a full relayout per
+  // tile (write invalidates, next read re-measures), which on this CPU turns
+  // one render into a dozen synchronous layouts.
+  var overflows = [];
   for (var i = 0; i < names.length; i++) {
-    var el = names[i];
-    var over = el.scrollWidth - el.parentNode.clientWidth;
+    overflows.push(names[i].scrollWidth - names[i].parentNode.clientWidth);
+  }
+  for (var k = 0; k < names.length; k++) {
+    var over = overflows[k];
     if (over <= 2) continue;
+    var el = names[k];
     // Long names get proportionally longer to read, with a dwell at each end.
     var ms = 7000 + Math.round(over * 26);
     el.style.animation = 'marquee' + ' ' + ms + 'ms linear infinite';
     el.style.setProperty('--shift', '-' + over + 'px');
+    // Compositor layers are scarce on this GPU, so only names that actually
+    // scroll get promoted (the CSS deliberately has no blanket will-change).
+    el.style.willChange = 'transform';
   }
 }
 
