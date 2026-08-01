@@ -1,8 +1,9 @@
 // Hardware input -> semantic actions, per the device contract:
 // dial turn = wheel deltaX (dead-zone |dx|<10, drop ticks <15ms apart),
 // dial press = Enter, back = Escape, preset 1 = allow, preset 4 = deny,
-// settings key m = ambient toggle. Touch taps hit [data-action] elements,
-// and a touch drag scrolls whatever the dial scrolls.
+// settings key m: tap = ambient toggle, hold 600ms = bluetooth manager.
+// Touch taps hit [data-action] elements, and a touch drag scrolls whatever the
+// dial scrolls.
 
 import { createDrag } from './gesture.js';
 
@@ -28,11 +29,32 @@ var KEYMAP = {
   '2': 'page-queue',
   '3': 'page-usage',
   '4': 'deny',
-  m: 'ambient',
-  M: 'ambient',
 };
 
+// The settings key does two jobs, split by hold time like nocturne's power
+// menu: tap = ambient, hold 600ms = bluetooth. That forces ambient onto keyup
+// — a tap can't be told from the start of a hold until the key comes back up.
+var HOLD_MS = 600;
+var mTimer = null;
+var mHeld = false;
+
+function clearHold() {
+  if (mTimer) { clearTimeout(mTimer); mTimer = null; }
+  mHeld = false;
+}
+
 window.addEventListener('keydown', function (e) {
+  if (e.key === 'm' || e.key === 'M') {
+    e.preventDefault();
+    if (e.repeat || mTimer) return;
+    mHeld = false;
+    mTimer = setTimeout(function () {
+      mTimer = null;
+      mHeld = true;
+      fire('bt-manage');
+    }, HOLD_MS);
+    return;
+  }
   if (e.repeat) return;
   var action = KEYMAP[e.key];
   if (action) {
@@ -40,6 +62,17 @@ window.addEventListener('keydown', function (e) {
     fire(action);
   }
 }, { capture: true });
+
+window.addEventListener('keyup', function (e) {
+  if (e.key !== 'm' && e.key !== 'M') return;
+  e.preventDefault();
+  var wasHeld = mHeld;
+  clearHold();
+  if (!wasHeld) fire('ambient');
+}, { capture: true });
+
+// a keyup lost to focus change must not strand a pending hold
+window.addEventListener('blur', clearHold);
 
 document.addEventListener('wheel', function (e) {
   e.preventDefault();

@@ -18,6 +18,9 @@ export const deviceState = {
 
 const ok = { status: 'ok' };
 
+// timers driving the fake pairing sequence while discoverable is on
+const pairingTimers = [];
+
 export function buildMethods({ emit, firmware }) {
   const timezone = () => {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -98,24 +101,47 @@ export function buildMethods({ emit, firmware }) {
       // UI sends {discoverable:bool} and requires result.status === "requested"
       deviceState.discoverable = params.discoverable !== false;
       emit('bluetooth.discoverable', { discoverable: deviceState.discoverable });
+      if (deviceState.discoverable) {
+        // fake a phone pairing so the PIN overlay and paired-event path are
+        // exercisable in dev: agent PIN at 2.5s, paired at 5s
+        const fake = { address: 'AA:BB:CC:DD:EE:55', name: 'Emu Pixel' };
+        pairingTimers.push(setTimeout(() => {
+          emit('bluetooth.agent', { ...fake, pin: '123456', type: 'bluetooth_pin' });
+        }, 2500));
+        pairingTimers.push(setTimeout(() => {
+          if (!deviceState.btDevices.some((x) => x.address === fake.address)) {
+            deviceState.btDevices.push({ ...fake, paired: true, connected: false });
+          }
+          emit('bluetooth.pairing', { event: 'paired', device: fake.address });
+        }, 5000));
+      } else {
+        pairingTimers.forEach(clearTimeout);
+        pairingTimers.length = 0;
+        emit('bluetooth.agent', { event: 'cancel' });
+      }
       return { result: { status: 'requested' } };
     },
     'bluetooth.device.connect': (params = {}) => {
       const d = deviceState.btDevices.find((x) => x.address === params.address);
       if (d) d.connected = true;
-      return { result: ok };
+      emit('bluetooth.device', { event: 'connected', device: params.address });
+      // real daemon reports how far the connect got, not a bare ok
+      return { result: { status: 'connected' } };
     },
     'bluetooth.device.disconnect': (params = {}) => {
       const d = deviceState.btDevices.find((x) => x.address === params.address);
       if (d) d.connected = false;
+      emit('bluetooth.device', { event: 'disconnected', device: params.address });
       return { result: ok };
     },
     'bluetooth.device.unpair': (params = {}) => {
       deviceState.btDevices = deviceState.btDevices.filter((x) => x.address !== params.address);
+      emit('bluetooth.device', { event: 'removed', device: params.address });
       return { result: ok };
     },
     'bluetooth.device.forget': (params = {}) => {
       deviceState.btDevices = deviceState.btDevices.filter((x) => x.address !== params.address);
+      emit('bluetooth.device', { event: 'removed', device: params.address });
       return { result: ok };
     },
 

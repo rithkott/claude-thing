@@ -12,13 +12,19 @@ import { renderUsage } from '../src/screens/usage.js';
 import { renderAmbient } from '../src/screens/ambient.js';
 import { renderDetail } from '../src/screens/session-detail.js';
 import { renderAsk, setQueueContext } from '../src/screens/ask.js';
+import { renderBluetooth, btMenuActions, renderBtPairing } from '../src/screens/bluetooth.js';
 
 function baseState(over = {}) {
   return {
     sessions: [], stats: { active: 0, attention: 0 }, details: {}, asks: [],
-    usage: null, daemonConnected: true, selectedIndex: 0, queueIndex: 0, ...over,
+    usage: null, daemonConnected: true, selectedIndex: 0, queueIndex: 0,
+    btDevices: [], btDiscoverable: false, btIndex: 0, btMenu: null,
+    btMenuIndex: 0, btBusy: null, btPairing: null, ...over,
   };
 }
+const btDevice = (over = {}) => ({
+  address: 'AA:BB:CC:DD:EE:99', name: 'Dev iPhone', paired: true, connected: true, ...over,
+});
 const session = (over = {}) => ({
   id: 'a', name: 'proj', state: 'busy', lastActivityTs: Date.now(),
   tokens: { in: 1000, out: 2000 }, pendingPermission: false, ...over,
@@ -294,7 +300,7 @@ test('detail shows tokens, cache and state, and waits politely before loading', 
 });
 
 test('the connection dot reflects the daemon link on every screen', () => {
-  for (const render of [renderList, renderQueue]) {
+  for (const render of [renderList, renderQueue, renderBluetooth]) {
     assert.match(render(baseState({ daemonConnected: true })), /class="conn ok"/);
     assert.match(render(baseState({ daemonConnected: false })), /class="conn"/);
   }
@@ -405,4 +411,76 @@ test('a countdown with no deadline left to run is not drawn', () => {
     createdTs: Date.now(), timeoutMs: 600_000, expired: true,
   };
   assert.doesNotMatch(renderAsk(baseState(), ask, 0), /cdtrack/);
+});
+
+// --- bluetooth --------------------------------------------------------------
+
+test('empty bluetooth list points at pairing mode instead of a blank screen', () => {
+  const html = renderBluetooth(baseState());
+  assert.match(html, /NO PAIRED DEVICES/);
+  assert.match(html, /enter pairing mode to add your phone/);
+  assert.match(html, /PAIRING MODE/);
+});
+
+test('exactly one bluetooth row is selected, toggle row included', () => {
+  const devices = [btDevice(), btDevice({ address: 'AA:BB:CC:DD:EE:98', connected: false })];
+  const onToggle = renderBluetooth(baseState({ btDevices: devices, btIndex: 0 }));
+  assert.equal((onToggle.match(/btrow[^"]* selected/g) || []).length, 1);
+  assert.match(onToggle, /bttoggle selected/);
+
+  const onDevice = renderBluetooth(baseState({ btDevices: devices, btIndex: 2 }));
+  assert.equal((onDevice.match(/btrow[^"]* selected/g) || []).length, 1);
+  assert.doesNotMatch(onDevice, /bttoggle selected/);
+});
+
+test('a long device list windows around the cursor and shows position', () => {
+  const many = Array.from({ length: 8 }, (_, i) =>
+    btDevice({ address: `AA:BB:CC:DD:EE:0${i}`, name: `phone${i}`, connected: false }));
+  const html = renderBluetooth(baseState({ btDevices: many, btIndex: 8 }));
+  assert.equal((html.match(/data-action="bt-device"/g) || []).length, 4, 'four visible at a time');
+  assert.match(html, /phone7/, 'the cursor is on screen');
+  assert.match(html, /8 \/ 8/);
+});
+
+test('device status reads CONNECTED, PAIRED, or WORKING while busy', () => {
+  const devices = [btDevice(), btDevice({ address: 'AA:BB:CC:DD:EE:98', connected: false })];
+  const html = renderBluetooth(baseState({ btDevices: devices }));
+  assert.match(html, /CONNECTED/);
+  assert.match(html, /PAIRED/);
+
+  const busy = renderBluetooth(baseState({ btDevices: devices, btBusy: 'AA:BB:CC:DD:EE:99' }));
+  assert.match(busy, /WORKING…/);
+});
+
+test('the pairing-mode pill follows discoverable state', () => {
+  assert.match(renderBluetooth(baseState()), /btpill">OFF/);
+  assert.match(renderBluetooth(baseState({ btDiscoverable: true })), /btpill on">DISCOVERABLE/);
+});
+
+test('the action menu leads with the state change and never hides forget', () => {
+  assert.deepEqual(btMenuActions(btDevice()), ['DISCONNECT', 'FORGET', 'CANCEL']);
+  assert.deepEqual(btMenuActions(btDevice({ connected: false })), ['CONNECT', 'FORGET', 'CANCEL']);
+});
+
+test('the submenu names its device and selects one action', () => {
+  const html = renderBluetooth(baseState({
+    btDevices: [btDevice()], btMenu: 'AA:BB:CC:DD:EE:99', btMenuIndex: 1,
+  }));
+  assert.match(html, /btmenutitle">Dev iPhone/);
+  assert.equal((html.match(/btact selected|btact[^"]* selected/g) || []).length, 1);
+  assert.match(html, /DISCONNECT/);
+  assert.match(html, /FORGET/);
+});
+
+test('a submenu for a vanished device renders nothing rather than crashing', () => {
+  const html = renderBluetooth(baseState({ btDevices: [btDevice()], btMenu: 'not-there' }));
+  assert.doesNotMatch(html, /btmenuwrap/);
+});
+
+test('the pairing overlay shows the code and escapes a hostile device name', () => {
+  const html = renderBtPairing({ address: 'X', name: '<img src=x>', pin: '424242' });
+  assert.match(html, /PAIRING REQUEST/);
+  assert.match(html, /424242/);
+  assert.match(html, /auto-accepting/);
+  assert.ok(!html.includes('<img'), 'device name must be escaped');
 });
