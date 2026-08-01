@@ -354,24 +354,18 @@ test('no context reading means no meter, never a meter against a guess', () => {
   assert.doesNotMatch(html, /ctxtrack/);
 });
 
-test('the track carries its own label, ink flipping as the fill passes under', () => {
-  const early = renderList(baseState({
-    sessions: [{ id: 'a', name: 'proj', state: 'busy', tokens: { in: 1, out: 2 }, context: 0.12 }],
+test('the track label is drawn twice, the dark copy clipped inside the fill', () => {
+  const html = renderList(baseState({
+    sessions: [{ id: 'a', name: 'proj', state: 'busy', tokens: { in: 1, out: 2 }, context: 0.34 }],
   }));
-  assert.match(early, /<span class="ctxword">CONTEXT<\/span>/, 'word over bare track');
-  assert.match(early, /<span class="ctxnum">12%<\/span>/, 'number over bare track');
-
-  const mid = renderList(baseState({
-    sessions: [{ id: 'a', name: 'proj', state: 'busy', tokens: { in: 1, out: 2 }, context: 0.2 }],
-  }));
-  assert.match(mid, /<span class="ctxword over">CONTEXT<\/span>/, 'word flips first');
-  assert.match(mid, /<span class="ctxnum">20%<\/span>/, 'number still over bare track');
-
-  const late = renderList(baseState({
-    sessions: [{ id: 'a', name: 'proj', state: 'busy', tokens: { in: 1, out: 2 }, context: 0.5 }],
-  }));
-  assert.match(late, /<span class="ctxnum over">50%<\/span>/, 'number flips past 34%');
-  assert.doesNotMatch(late, /ctxrow/, 'no line above the track spent on a number');
+  const light = html.match(/<span class="ctxtext"><span class="ctxword">CONTEXT<\/span><span class="ctxnum">34%<\/span><\/span>/g);
+  assert.equal(light && light.length, 1, 'one light copy on the bare track');
+  assert.match(html,
+    /<span class="ctxfill" style="width:34\.0%"><span class="ctxtext dark"><span class="ctxword">CONTEXT<\/span><span class="ctxnum">34%<\/span><\/span><\/span>/,
+    'dark copy lives inside the fill so its edge clips it');
+  assert.match(html, /class="ctxtext">[\s\S]*class="ctxfill"/,
+    'fill paints over the light copy, never under it');
+  assert.doesNotMatch(html, /ctxrow/, 'no line above the track spent on a number');
 });
 
 test('the tile names its model, even on an ended session with no meter', () => {
