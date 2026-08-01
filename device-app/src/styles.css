@@ -1204,6 +1204,91 @@ html, body {
   color: var(--faintest);
 }
 
+/* ---- clock-screen mascot -------------------------------------------------
+   Wrapper carries the position (tweened by mascot.js), inner div carries the
+   sprite strip and the mirror. Splitting them keeps the walk-left flip from
+   being interpolated into a squash halfway across the panel. */
+.mascot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 96px;
+  height: 96px;
+  display: none;
+  pointer-events: none;
+  z-index: 150;
+  transition-property: transform;
+  transition-timing-function: linear;
+  transition-duration: 0ms;
+}
+.mascot.show { display: block; }
+.mascotart {
+  width: 96px;
+  height: 96px;
+  background-repeat: no-repeat;
+  background-size: 384px 96px;
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+}
+.mascot.flip .mascotart { transform: scaleX(-1); }
+
+.act-walk .mascotart {
+  background-image: url("./sprites/dance-walk.svg");
+  animation: sprite96 0.44s steps(1, end) infinite;
+}
+.act-idle .mascotart {
+  background-image: url("./sprites/dance-idle.svg");
+  animation: sprite96 1.8s steps(1, end) infinite;
+}
+.act-shimmy .mascotart {
+  background-image: url("./sprites/dance-shimmy.svg");
+  animation: sprite96 0.42s steps(1, end) infinite;
+}
+.act-spin .mascotart {
+  background-image: url("./sprites/dance-spin.svg");
+  animation: sprite96 0.6s steps(1, end) infinite;
+}
+.act-roll .mascotart {
+  background-image: url("./sprites/dance-roll.svg");
+  animation: sprite96 0.32s steps(1, end) infinite;
+}
+.act-kick .mascotart {
+  background-image: url("./sprites/dance-kick.svg");
+  animation: sprite96 0.5s steps(1, end) infinite;
+}
+.act-split .mascotart {
+  background-image: url("./sprites/dance-split.svg");
+  animation: sprite96 0.72s steps(1, end) infinite;
+}
+.act-headstand .mascotart {
+  background-image: url("./sprites/dance-headstand.svg");
+  animation: sprite96 0.56s steps(1, end) infinite;
+}
+.act-wave .mascotart {
+  background-image: url("./sprites/dance-wave.svg");
+  animation: sprite96 0.48s steps(1, end) infinite;
+}
+.act-hop .mascotart {
+  background-image: url("./sprites/dance-hop.svg");
+  animation: sprite96 0.4s steps(1, end) infinite;
+}
+.act-nap .mascotart {
+  background-image: url("./sprites/dance-nap.svg");
+  animation: sprite96 2.4s steps(1, end) infinite;
+}
+.act-look .mascotart {
+  background-image: url("./sprites/dance-look.svg");
+  animation: sprite96 1.1s steps(1, end) infinite;
+}
+.act-startle .mascotart {
+  background-image: url("./sprites/dance-startle.svg");
+  animation: sprite96 0.46s steps(1, end) infinite;
+}
+.act-boogie .mascotart {
+  background-image: url("./sprites/dance-boogie.svg");
+  animation: sprite96 0.44s steps(1, end) infinite;
+}
+
 /* ---- banner + toast ----------------------------------------------------- */
 .banner {
   position: absolute;
