@@ -28,3 +28,4 @@ Claimed release numbers. One row per merge to `main`. See CLAUDE.md → Release 
 | r22 | 2026-08-01 | hw-frontend | Mode chips take Claude Code's colours, questions answered inside the queue hero, working mascot runs at the session's effort level |
 | r23 | 2026-08-01 | option-expand | The queue option under the cursor expands, label over description, both wrapped in full |
 | r24 | 2026-08-01 | parked-window-focus | Answering a backgrounded job from the device raises the window parked on it instead of reporting no window |
+| r25 | 2026-08-01 | expired-answer | A timed-out question still raises its terminal when answered from the device, and every failed answer says why on the Mac |

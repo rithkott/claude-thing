@@ -422,15 +422,25 @@ function openAsk(id) {
 function answerAsk(id, choice) {
   var ask = store.getAsk(id);
   if (!ask) return;
-  // The hook already answered "ask" and closed; a decision now has nowhere to
-  // go. Dismiss it rather than pretending the press did something.
-  if (ask.expired) return skipAsk(id);
+  // An expired permission is unrecoverable — the hook already answered "ask"
+  // and closed, so a decision now has nowhere to go. An expired *question* is
+  // the opposite: it timed out here but is still up in the terminal, and the
+  // daemon can still raise that window. So only permissions are dismissed.
+  if (ask.expired && ask.kind !== 'question') return skipAsk(id);
 
   if (ask.kind === 'question') {
     var option = (ask.options || [])[choice];
     if (!option) return;
     ws.request('claude.question.answer', { id: id, optionIndex: choice })
-      .then(function (res) { toast(questionToast(res, choice)); })
+      .then(function (res) {
+        toast(questionToast(res, choice));
+        // The daemon has no such ask — answered elsewhere, or restarted out
+        // from under this card. Either way it is not ours to press again.
+        if (/already resolved/i.test(String(res.reason || ''))) {
+          store.resolveAsk(id);
+          nextAskOrBack();
+        }
+      })
       .catch(function () { toast('SEND FAILED'); });
     return;
   }
@@ -461,6 +471,10 @@ function questionToast(res, choice) {
   if (res.viaKeyboard) return 'ANSWERED ON MAC';
   var why = String(res.reason || '');
   if (res.focused) return 'FOCUSED — PRESS ' + (choice + 1) + ' ON MAC';
+  // The card outlived the daemon's copy of the ask — answered on the Mac, or
+  // the daemon restarted under it. Not a failure to answer, and not something
+  // pressing again fixes: the terminal owns it now.
+  if (/already resolved/i.test(why)) return 'GONE — ANSWER IN TERMINAL';
   if (/denied/i.test(why)) return 'ALLOW AUTOMATION IN MAC SETTINGS';
   if (/background agent/i.test(why)) return 'BACKGROUND AGENT — NO WINDOW';
   if (/registry|tty|no session|unknown session/i.test(why)) return 'NO TERMINAL WINDOW FOUND';
