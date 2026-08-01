@@ -21,6 +21,11 @@ export function startTranscriptTail({ store, sessionId, transcriptPath }) {
       return;
     }
 
+    // One upsert per line, not one per field. Every upsert fans out through
+    // the store's emit path, and a busy transcript writes several lines a
+    // second — five upserts per line multiplied into the event flood that
+    // stuttered the device.
+    const fields = {};
     const msg = obj.message || obj;
     const usage = msg.usage || obj.usage;
     if (usage) {
@@ -29,32 +34,29 @@ export function startTranscriptTail({ store, sessionId, transcriptPath }) {
       // turn's prompt size *is* the context occupancy — an overwrite, not a
       // sum. The lifetime counters below are the opposite arithmetic on the
       // same numbers.
-      store.upsert(sessionId, {
-        contextTokens: (usage.input_tokens || 0) +
-          (usage.cache_read_input_tokens || 0) +
-          (usage.cache_creation_input_tokens || 0),
-      });
+      fields.contextTokens = (usage.input_tokens || 0) +
+        (usage.cache_read_input_tokens || 0) +
+        (usage.cache_creation_input_tokens || 0);
       // Cache reads are counted separately: summing them across every turn
       // reaches tens of millions and drowns out the real numbers.
-      store.upsert(sessionId, {
-        tokensIn: (raw.tokensIn || 0) + (usage.input_tokens || 0) +
-          (usage.cache_creation_input_tokens || 0),
-        tokensOut: (raw.tokensOut || 0) + (usage.output_tokens || 0),
-        cacheRead: (raw.cacheRead || 0) + (usage.cache_read_input_tokens || 0),
-      });
+      fields.tokensIn = (raw.tokensIn || 0) + (usage.input_tokens || 0) +
+        (usage.cache_creation_input_tokens || 0);
+      fields.tokensOut = (raw.tokensOut || 0) + (usage.output_tokens || 0);
+      fields.cacheRead = (raw.cacheRead || 0) + (usage.cache_read_input_tokens || 0);
     }
-    if (msg.model) store.upsert(sessionId, { model: msg.model });
+    if (msg.model) fields.model = msg.model;
 
     // last assistant text snippet
     const content = msg.content;
     if (Array.isArray(content)) {
       const text = content.filter((c) => c && c.type === 'text' && c.text).map((c) => c.text).join(' ');
-      if (text) store.upsert(sessionId, { lastMessage: text.slice(0, 200) });
+      if (text) fields.lastMessage = text.slice(0, 200);
     }
     if (obj.timestamp || msg.timestamp) {
       const ts = Date.parse(obj.timestamp || msg.timestamp);
-      if (!Number.isNaN(ts)) store.upsert(sessionId, { lastActivityTs: ts });
+      if (!Number.isNaN(ts)) fields.lastActivityTs = ts;
     }
+    if (Object.keys(fields).length) store.upsert(sessionId, fields);
   }
 
   function readNew() {

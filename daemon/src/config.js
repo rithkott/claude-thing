@@ -39,6 +39,19 @@ export const HOOK_TIMEOUT_S = 600;
 // slice via claude.sessions.list {limit}.
 export const SESSION_CAP = 0;
 export const SNAPSHOT_DEBOUNCE_MS = 500;
+// Detail events are per-session and fire on every store write. A streaming
+// transcript writes several times a second, and every write used to go out as
+// its own claude.session.update — the device full-repaints per frame, so N busy
+// sessions multiplied into a render flood that froze the UI. Per-session
+// trailing debounce: the latest state still arrives within a blink, the flood
+// does not. Ended sessions bypass this — that farewell must not lose a race
+// with the record's deletion.
+export const DETAIL_DEBOUNCE_MS = 200;
+// A snapshot whose content hasn't changed still used to go out every 5s (the
+// state re-derive tick), repainting every connected screen overnight. Unchanged
+// snapshots are skipped, but not forever: one still goes out at this interval
+// so the device's clock-skew correction (serverNowMs) stays fresh.
+export const SNAPSHOT_HEARTBEAT_MS = 30_000;
 export const BUSY_WINDOW_MS = 10_000;    // activity within this = busy
 // A finished turn is worth glancing at, and twenty seconds was shorter than the
 // time it takes to look up at the device. A minute is long enough to notice.
