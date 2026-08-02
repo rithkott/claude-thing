@@ -2,8 +2,8 @@
 
 Claimed release numbers. One row per merge to `main`. See CLAUDE.md → Release process.
 
-| Release | Date | Branch | Summary |
-|---------|------|--------|---------|
+| Release | Date | Kind | Branch | Summary |
+|---------|------|------|--------|---------|
 | r1 | 2026-07-31 | ask-option-clipping | Question options fit the screen; dial scrolling visibly works |
 | r2 | 2026-07-31 | session-wipe-hysteresis | Session tiles no longer vanish/reappear on one bad registry poll |
 | r3 | 2026-07-31 | clock-timezone | Device clock shows Mac-local time instead of UTC |
@@ -41,3 +41,4 @@ Claimed release numbers. One row per merge to `main`. See CLAUDE.md → Release 
 | r35 | 2026-08-02 | empty-fleet | The clock screen shows no session lamp when nothing is running, instead of one stray gray box |
 | r36 | 2026-08-02 | esc-clears-asks | Esc in the terminal now clears the device ask too — no more stuck question cards re-raising dead dialogs |
 | r37 | 2026-08-02 | no-drift | The device stops drifting back to the clock after 5s idle — the screen you leave it on stays put |
+| 1.17.0 | 2026-08-02 | feature | multi-question | A multi-question AskUserQuestion is one card you walk, edit and submit — multiSelect answerable at last, and every tap on the device works again |
