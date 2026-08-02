@@ -3,7 +3,7 @@
 
 import fs from 'node:fs';
 
-export function startTranscriptTail({ store, sessionId, transcriptPath }) {
+export function startTranscriptTail({ store, sessionId, transcriptPath, onInterrupt }) {
   let offset = 0;
   let reading = false;
 
@@ -55,6 +55,15 @@ export function startTranscriptTail({ store, sessionId, transcriptPath }) {
     if (Array.isArray(content)) {
       const text = content.filter((c) => c && c.type === 'text' && c.text).map((c) => c.text).join(' ');
       if (text) fields.lastMessage = text.slice(0, 200);
+      // Esc in the terminal kills any open dialog but fires no hook at all —
+      // no PostToolUse, no Stop. The transcript's interrupt marker is the only
+      // signal that a pending ask just died, so it is surfaced with the line's
+      // own timestamp: catch-up replays old markers, and the consumer needs
+      // the time to tell a stale marker from a live Esc.
+      if (onInterrupt && text.startsWith('[Request interrupted')) {
+        const ts = Date.parse(obj.timestamp || msg.timestamp || '');
+        onInterrupt(Number.isNaN(ts) ? Date.now() : ts);
+      }
     }
     if (obj.timestamp || msg.timestamp) {
       const ts = Date.parse(obj.timestamp || msg.timestamp);

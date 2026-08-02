@@ -9,6 +9,13 @@ import { startTranscriptTail } from './source-transcript.js';
 
 const tails = new Map(); // sessionId -> handle
 
+// Esc in the terminal fires no hook, so the transcript tail is the only place
+// an interrupt is visible. Whoever owns the ask queue registers here; the
+// registry is module-level because both the hooks source and the poller create
+// tails and neither holds the queue.
+let onInterrupt = null;
+export function setTailInterruptHandler(fn) { onInterrupt = fn; }
+
 // Claude Code stores transcripts at
 // ~/.claude/projects/<cwd with non-alphanumerics replaced by '-'>/<sessionId>.jsonl
 export function transcriptPathFor(sessionId, cwd) {
@@ -20,7 +27,10 @@ export function transcriptPathFor(sessionId, cwd) {
 export function ensureTail(store, sessionId, transcriptPath) {
   if (!transcriptPath || tails.has(sessionId)) return;
   if (!fs.existsSync(transcriptPath)) return;
-  tails.set(sessionId, startTranscriptTail({ store, sessionId, transcriptPath }));
+  tails.set(sessionId, startTranscriptTail({
+    store, sessionId, transcriptPath,
+    onInterrupt: (ts) => { if (onInterrupt) onInterrupt(sessionId, ts); },
+  }));
 }
 
 export function stopTail(sessionId) {

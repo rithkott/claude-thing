@@ -214,3 +214,30 @@ test('no prompt seen: the ask goes out with an empty intent', () => {
   const q = events.find((e) => e.topic === 'claude.question.request');
   assert.equal(q.data.intent, '');
 });
+
+test('an Esc interrupt after the ask retires it', () => {
+  const { queue, events } = setup();
+  queue.onQuestion(QUESTION_HOOK);
+  assert.equal(queue.size(), 1);
+
+  queue.onInterrupted('sess-1', Date.now() + 1);
+  assert.equal(queue.size(), 0);
+  const resolved = events.find((e) => e.topic === 'claude.question.resolved');
+  assert.equal(resolved.data.resolution, 'interrupted');
+});
+
+test('a replayed interrupt marker older than the ask leaves it alone', () => {
+  const { queue, events } = setup();
+  queue.onQuestion(QUESTION_HOOK);
+
+  queue.onInterrupted('sess-1', Date.now() - 60_000);
+  assert.equal(queue.size(), 1, 'catch-up replay of an old marker must not kill a fresh ask');
+  assert.ok(!events.some((e) => e.topic === 'claude.question.resolved'));
+});
+
+test('an interrupt for another session is not ours to act on', () => {
+  const { queue } = setup();
+  queue.onQuestion(QUESTION_HOOK);
+  queue.onInterrupted('sess-other', Date.now() + 1);
+  assert.equal(queue.size(), 1);
+});

@@ -75,6 +75,18 @@ test('the terminal answering a timed-out question retires it for good', async ()
   assert.equal((await queue.answerQuestion(ask.id, 0)).reason, 'already resolved');
 });
 
+test('an Esc interrupt retires a timed-out ask for good — no window left to raise', async () => {
+  const { queue, ask, events } = await queueThenExpire();
+  queue.onInterrupted('sess-1', Date.now());
+
+  assert.ok(
+    events.some((e) => e.topic === 'claude.question.resolved' && e.data.resolution === 'interrupted'),
+    'the device is told to drop the card',
+  );
+  assert.equal((await queue.answerQuestion(ask.id, 0)).reason, 'already resolved',
+    'pressing the dead card must not focus a window with no dialog in it');
+});
+
 test('an unknown id is still refused', async () => {
   const { queue } = setup();
   const res = await queue.answerQuestion('11111111-2222-3333-4444-555555555555', 0);
