@@ -37,3 +37,4 @@ Claimed release numbers. One row per merge to `main`. See CLAUDE.md → Release 
 | r31 | 2026-08-01 | meter-legibility | Context label stays readable at every fill: dark copy clipped inside the bar, light copy on the bare track |
 | r32 | 2026-08-01 | hw2-device-ui | The device drives itself: drift home + wake to queue, pulsing blocked edge, destructive two-press arming with 6s undo, intent line on every ask, desk-clock ambient, tile spec line with 56px mascot |
 | r33 | 2026-08-02 | mascot-toggle | Tap the clock screen to turn the wandering sprite off or back on; the choice survives reboots |
+| r34 | 2026-08-02 | readme-install | README rewritten as a step-by-step install guide for non-technical readers, with verification and troubleshooting |
