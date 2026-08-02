@@ -135,6 +135,24 @@ end tell`;
 export function createFocus() {
   let automationDenied = false;   // sticky: a denied TCC row never re-prompts
 
+  // There is one keyboard and one frontmost window, so there can be one of
+  // these at a time. Nothing else enforces it: the hub handles every socket
+  // frame in its own task, so two answers arriving close together used to run
+  // their focus-then-type concurrently and interleave keystrokes into whatever
+  // window happened to be in front — digits meant for one session landing in
+  // another's terminal.
+  //
+  // Anything that raises a window or types must run inside this, and a
+  // focus-then-type pair must be ONE call to it: a bare focus slipping between
+  // the two halves is the same bug.
+  let chain = Promise.resolve();
+  function exclusive(fn) {
+    const run = chain.then(() => fn());
+    // The chain must survive a failed turn, so it tracks completion, not result.
+    chain = run.then(() => {}, () => {});
+    return run;
+  }
+
   async function focusSession(sessionId) {
     const rec = lookupSession(sessionId);
     if (!rec) return { focused: false, reason: 'no session registry entry' };
@@ -239,5 +257,8 @@ export function createFocus() {
     return { typed: false, reason: r.error };
   }
 
-  return { focusSession, typeKey, typeSequence, lookupSession };
+  // focusSession/typeKey/typeSequence are the primitives and do NOT take the
+  // lock themselves — that would deadlock the focus-then-type pair, which has
+  // to hold it across both. Callers wrap them in exclusive().
+  return { exclusive, focusSession, typeKey, typeSequence, lookupSession };
 }

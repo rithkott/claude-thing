@@ -42,3 +42,4 @@ Claimed release numbers. One row per merge to `main`. See CLAUDE.md → Release 
 | r36 | 2026-08-02 | esc-clears-asks | Esc in the terminal now clears the device ask too — no more stuck question cards re-raising dead dialogs |
 | r37 | 2026-08-02 | no-drift | The device stops drifting back to the clock after 5s idle — the screen you leave it on stays put |
 | 1.17.0 | 2026-08-02 | feature | multi-question | A multi-question AskUserQuestion is one card you walk, edit and submit — multiSelect answerable at last, and every tap on the device works again |
+| 1.17.1 | 2026-08-02 | fix | answer-serialization | Answers given in quick succession are typed one at a time, so keystrokes can no longer interleave into the wrong session's terminal |

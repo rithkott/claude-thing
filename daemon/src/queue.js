@@ -251,54 +251,71 @@ export function createQueue({ emit, store, focus }) {
       log('QQ', `answer refused: ${id.slice(0, 8)} already resolved`);
       return { accepted: false, reason: 'already resolved' };
     }
-    const timedOut = !questions.has(id);
     // Validate the whole answer set before touching the keyboard: a sequence
     // that is wrong halfway through leaves a half-answered dialog, which is
-    // strictly worse than refusing it here.
+    // strictly worse than refusing it here. Refusals are immediate — only the
+    // part that drives the keyboard waits its turn.
     const answers = normalizeAnswers(rawAnswers, ask.questions);
     if (!answers) return { accepted: false, reason: 'bad answer shape' };
     const chosen = ask.questions
       .map((q, i) => answers[i].map((p) => q.options[p].label).join(' + ') || 'none')
       .join(' · ');
-
-    // Focus first so the keystrokes — or the user's own — land in the right
-    // window.
-    const f = ask.sessionId
-      ? await focus.focusSession(ask.sessionId)
-      : { focused: false, reason: 'unknown session' };
-
     const keys = keySequence(ask.questions, answers);
-    let typed = { typed: false, reason: 'not attempted' };
-    if (f.focused && f.exact) {
-      typed = await focus.typeSequence(keys);
-    }
 
-    if (typed.typed) {
-      questions.delete(id);
-      expired.delete(id);
-      emit('claude.question.resolved', { id, resolution: 'answered' });
-      log('QQ', `answered by keypress [${keys.join(' ')}]: ${ask.header} → ${chosen}`);
-      return { accepted: true, viaKeyboard: true, option: chosen, keys };
-    }
+    // One answer drives the keyboard at a time, focus and typing together. Two
+    // of these running at once put their keystrokes into whichever window is
+    // frontmost at that instant — which, with asks from different sessions, is
+    // digits landing in the wrong terminal.
+    return focus.exclusive(() => type());
 
-    // Focused but could not type: the human finishes it, and the ask stays in
-    // the queue until the PostToolUse hook says it was answered. The sequence
-    // is logged either way — a dialog left part-typed must leave behind what
-    // was typed, on the machine that typed it.
-    const res = {
-      accepted: f.focused,
-      viaKeyboard: false,
-      option: chosen,
-      questionCount: ask.questions.length,
-      focused: f.focused,
-      timedOut,
-      // when focus itself failed, that is the reason worth reporting
-      reason: f.focused ? (typed.reason || 'could not type') : f.reason,
-    };
-    // Every outcome is logged: a device that says it could not answer must
-    // leave behind the reason it could not, on the machine that decided.
-    log('QQ', `answer ${f.focused ? 'focused' : 'failed'}${timedOut ? ' (timed out)' : ''} [${keys.join(' ')}]: ${res.reason}`);
-    return res;
+    async function type() {
+      // The wait may have been long. The terminal may have answered this one
+      // itself, or Esc may have killed it, while it sat behind another answer —
+      // and typing into a dialog that is gone answers whatever replaced it.
+      if (!questions.has(id) && !expired.has(id)) {
+        log('QQ', `answer dropped: ${id.slice(0, 8)} resolved while queued`);
+        return { accepted: false, reason: 'already resolved' };
+      }
+      const timedOut = !questions.has(id);
+
+      // Focus first so the keystrokes — or the user's own — land in the right
+      // window.
+      const f = ask.sessionId
+        ? await focus.focusSession(ask.sessionId)
+        : { focused: false, reason: 'unknown session' };
+
+      let typed = { typed: false, reason: 'not attempted' };
+      if (f.focused && f.exact) {
+        typed = await focus.typeSequence(keys);
+      }
+
+      if (typed.typed) {
+        questions.delete(id);
+        expired.delete(id);
+        emit('claude.question.resolved', { id, resolution: 'answered' });
+        log('QQ', `answered by keypress [${keys.join(' ')}]: ${ask.header} → ${chosen}`);
+        return { accepted: true, viaKeyboard: true, option: chosen, keys };
+      }
+
+      // Focused but could not type: the human finishes it, and the ask stays in
+      // the queue until the PostToolUse hook says it was answered. The sequence
+      // is logged either way — a dialog left part-typed must leave behind what
+      // was typed, on the machine that typed it.
+      const res = {
+        accepted: f.focused,
+        viaKeyboard: false,
+        option: chosen,
+        questionCount: ask.questions.length,
+        focused: f.focused,
+        timedOut,
+        // when focus itself failed, that is the reason worth reporting
+        reason: f.focused ? (typed.reason || 'could not type') : f.reason,
+      };
+      // Every outcome is logged: a device that says it could not answer must
+      // leave behind the reason it could not, on the machine that decided.
+      log('QQ', `answer ${f.focused ? 'focused' : 'failed'}${timedOut ? ' (timed out)' : ''} [${keys.join(' ')}]: ${res.reason}`);
+      return res;
+    }
   }
 
   function list() {

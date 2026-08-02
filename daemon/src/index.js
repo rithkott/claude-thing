@@ -50,8 +50,10 @@ hub.setMethods({
   'claude.question.answer': async ({ id, answers, optionIndex }) =>
     queue.answerQuestion(id, answers ?? optionIndex),
 
-  // bring a session's terminal window to the front, as if it were clicked
-  'claude.session.focus': async ({ id }) => focus.focusSession(id),
+  // Bring a session's terminal window to the front, as if it were clicked.
+  // Through the same lock as answering: a raise landing between an answer's
+  // focus and its keystrokes would send them to the window it just raised.
+  'claude.session.focus': async ({ id }) => focus.exclusive(() => focus.focusSession(id)),
 
   'claude.usage.get': async () => usage.get(),
 });
