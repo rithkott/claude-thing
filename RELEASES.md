@@ -1,45 +1,51 @@
 # Releases
 
-Claimed release numbers. One row per merge to `main`. See CLAUDE.md → Release process.
+Claimed versions. One row per merge to `main`. See CLAUDE.md → Release process.
 
-| Release | Date | Kind | Branch | Summary |
+Versioning is semver-shaped: **major** only when explicitly asked for, **minor** for a feature addition, **patch** for a bug fix or docs.
+
+| Version | Date | Type | Branch | Summary |
 |---------|------|------|--------|---------|
-| r1 | 2026-07-31 | ask-option-clipping | Question options fit the screen; dial scrolling visibly works |
-| r2 | 2026-07-31 | session-wipe-hysteresis | Session tiles no longer vanish/reappear on one bad registry poll |
-| r3 | 2026-07-31 | clock-timezone | Device clock shows Mac-local time instead of UTC |
-| r4 | 2026-07-31 | emulator-fidelity | Emulator matches real hardware: true-scale dial, CPU/RAM caps, chrome69 code path, 40ms key polling, device fonts |
-| r5 | 2026-07-31 | plan-approval-bridge | Plan approvals surface on the device as questions; hook allow never worked for ExitPlanMode |
-| r6 | 2026-07-31 | release-assets | Every release ships the DMG and firmware zip as assets |
-| r7 | 2026-07-31 | dial-accuracy | Dial matches real Car Thing photos: plain 36mm disc upper-right, overhangs face edge |
-| r8 | 2026-07-31 | list-peek | Sessions grid drops the scrollbar; the next column peeks past the bezel instead |
-| r9 | 2026-07-31 | device-clock | Device wall clock and every duration run on Mac time, not the device's unset epoch |
-| r10 | 2026-07-31 | bool-counts | Session counts of 0/1 render as numbers again; the connector packs them as booleans |
-| r11 | 2026-07-31 | tile-mode | Each session tile shows its window's permission mode: PLAN / BYPASS / AUTO / EDITS / MANUAL |
-| r12 | 2026-07-31 | touch-scroll | Every screen the dial scrolls now scrolls by finger too: drag becomes dial ticks, taps still land |
-| r13 | 2026-07-31 | session-dupes | One conversation is one tile: a window parked on a background job stops showing as a second session |
-| r14 | 2026-07-31 | dancing-claude | A dancing Claude mascot roams the clock screen on a ~50 second routine |
-| r15 | 2026-07-31 | usage-state-flap | Usage screen stops flipping between a real figure and a stale lower one, and survives a daemon restart |
-| r16 | 2026-07-31 | bt-menu-claude-mode | Bluetooth management without leaving Claude mode: hold the settings key for pairing, paired devices, and per-device actions |
-| r17 | 2026-07-31 | session-order | Session list stops reshuffling: a working session only moves past idle ones, never past another working one |
-| r18 | 2026-08-01 | perf-event-flood | Device stops freezing under many sessions: daemon event flood debounced at the source, device repaints only when the screen actually changes |
-| r19 | 2026-08-01 | duplicate-question-alert | One alert per question: a multiple-choice ask stops also raising a permission card with a raw JSON body |
-| r20 | 2026-08-01 | relay-coalesce | Bluetooth relay coalesces state frames, offscreen tiles stop animating, faceplate stops double-parsing broadcasts |
-| r21 | 2026-08-01 | relay-default | Claude Code relay toggle is on by default in a fresh DMG install |
-| r22 | 2026-08-01 | hw-frontend | Mode chips take Claude Code's colours, questions answered inside the queue hero, working mascot runs at the session's effort level |
-| r23 | 2026-08-01 | option-expand | The queue option under the cursor expands, label over description, both wrapped in full |
-| r24 | 2026-08-01 | parked-window-focus | Answering a backgrounded job from the device raises the window parked on it instead of reporting no window |
-| r25 | 2026-08-01 | expired-answer | A timed-out question still raises its terminal when answered from the device, and every failed answer says why on the Mac |
-| r26 | 2026-08-01 | orphan-jobs | A background job whose terminal window is gone leaves the grid once it goes idle, instead of sitting there until killed by hand |
-| r27 | 2026-08-01 | type-parked | A backgrounded job's question is answered from the device outright — the keypress is typed into the window parked on it |
-| r28 | 2026-08-01 | nul-byte | A stray NUL byte in the session poller is gone, so the file diffs, blames and greps as text again |
-| r29 | 2026-08-01 | queue-sync | Stale asks disappear: the daemon pushes its waiting list on every client hello and the device drops cards it no longer vouches for |
-| r30 | 2026-08-01 | tile-model-meter | Each tile names its model; the context meter carries its own CONTEXT NN% label inside a taller track |
-| r31 | 2026-08-01 | meter-legibility | Context label stays readable at every fill: dark copy clipped inside the bar, light copy on the bare track |
-| r32 | 2026-08-01 | hw2-device-ui | The device drives itself: drift home + wake to queue, pulsing blocked edge, destructive two-press arming with 6s undo, intent line on every ask, desk-clock ambient, tile spec line with 56px mascot |
-| r33 | 2026-08-02 | mascot-toggle | Tap the clock screen to turn the wandering sprite off or back on; the choice survives reboots |
-| r34 | 2026-08-02 | readme-install | README rewritten as a step-by-step install guide for non-technical readers, with verification and troubleshooting |
-| r35 | 2026-08-02 | empty-fleet | The clock screen shows no session lamp when nothing is running, instead of one stray gray box |
-| r36 | 2026-08-02 | esc-clears-asks | Esc in the terminal now clears the device ask too — no more stuck question cards re-raising dead dialogs |
-| r37 | 2026-08-02 | no-drift | The device stops drifting back to the clock after 5s idle — the screen you leave it on stays put |
+| 1.0.0 | 2026-07-30 | initial | initial | Car Thing as a Claude Code monitor |
+| 1.1.0 | 2026-07-30 | feature | device-reach-mac | The device can actually reach the Mac |
+| 1.2.0 | 2026-07-31 | feature | readability-redesign | Readability redesign |
+| 1.2.1 | 2026-07-31 | fix | ask-option-clipping | Question options fit the screen; dial scrolling visibly works |
+| 1.2.2 | 2026-07-31 | fix | session-wipe-hysteresis | Session tiles no longer vanish/reappear on one bad registry poll |
+| 1.2.3 | 2026-07-31 | fix | clock-timezone | Device clock shows Mac-local time instead of UTC |
+| 1.3.0 | 2026-07-31 | feature | emulator-fidelity | Emulator matches real hardware: true-scale dial, CPU/RAM caps, chrome69 code path, 40ms key polling, device fonts |
+| 1.4.0 | 2026-07-31 | feature | plan-approval-bridge | Plan approvals surface on the device as questions; hook allow never worked for ExitPlanMode |
+| 1.5.0 | 2026-07-31 | feature | release-assets | Every release ships the DMG and firmware zip as assets |
+| 1.5.1 | 2026-07-31 | fix | dial-accuracy | Dial matches real Car Thing photos: plain 36mm disc upper-right, overhangs face edge |
+| 1.6.0 | 2026-07-31 | feature | list-peek | Sessions grid drops the scrollbar; the next column peeks past the bezel instead |
+| 1.6.1 | 2026-07-31 | fix | device-clock | Device wall clock and every duration run on Mac time, not the device's unset epoch |
+| 1.6.2 | 2026-07-31 | fix | bool-counts | Session counts of 0/1 render as numbers again; the connector packs them as booleans |
+| 1.7.0 | 2026-07-31 | feature | tile-mode | Each session tile shows its window's permission mode: PLAN / BYPASS / AUTO / EDITS / MANUAL |
+| 1.8.0 | 2026-07-31 | feature | touch-scroll | Every screen the dial scrolls now scrolls by finger too: drag becomes dial ticks, taps still land |
+| 1.8.1 | 2026-07-31 | fix | session-dupes | One conversation is one tile: a window parked on a background job stops showing as a second session |
+| 1.9.0 | 2026-07-31 | feature | dancing-claude | A dancing Claude mascot roams the clock screen on a ~50 second routine |
+| 1.9.1 | 2026-07-31 | fix | usage-state-flap | Usage screen stops flipping between a real figure and a stale lower one, and survives a daemon restart |
+| 1.10.0 | 2026-07-31 | feature | bt-menu-claude-mode | Bluetooth management without leaving Claude mode: hold the settings key for pairing, paired devices, and per-device actions |
+| 1.10.1 | 2026-07-31 | fix | session-order | Session list stops reshuffling: a working session only moves past idle ones, never past another working one |
+| 1.10.2 | 2026-08-01 | fix | perf-event-flood | Device stops freezing under many sessions: daemon event flood debounced at the source, device repaints only when the screen actually changes |
+| 1.10.3 | 2026-08-01 | fix | duplicate-question-alert | One alert per question: a multiple-choice ask stops also raising a permission card with a raw JSON body |
+| 1.10.4 | 2026-08-01 | fix | relay-coalesce | Bluetooth relay coalesces state frames, offscreen tiles stop animating, faceplate stops double-parsing broadcasts |
+| 1.10.5 | 2026-08-01 | fix | relay-default | Claude Code relay toggle is on by default in a fresh DMG install |
+| 1.11.0 | 2026-08-01 | feature | hw-frontend | Mode chips take Claude Code's colours, questions answered inside the queue hero, working mascot runs at the session's effort level |
+| 1.12.0 | 2026-08-01 | feature | option-expand | The queue option under the cursor expands, label over description, both wrapped in full |
+| 1.12.1 | 2026-08-01 | fix | parked-window-focus | Answering a backgrounded job from the device raises the window parked on it instead of reporting no window |
+| 1.12.2 | 2026-08-01 | fix | expired-answer | A timed-out question still raises its terminal when answered from the device, and every failed answer says why on the Mac |
+| 1.12.3 | 2026-08-01 | fix | orphan-jobs | A background job whose terminal window is gone leaves the grid once it goes idle, instead of sitting there until killed by hand |
+| 1.13.0 | 2026-08-01 | feature | type-parked | A backgrounded job's question is answered from the device outright — the keypress is typed into the window parked on it |
+| 1.13.1 | 2026-08-01 | fix | nul-byte | A stray NUL byte in the session poller is gone, so the file diffs, blames and greps as text again |
+| 1.13.2 | 2026-08-01 | fix | queue-sync | Stale asks disappear: the daemon pushes its waiting list on every client hello and the device drops cards it no longer vouches for |
+| 1.14.0 | 2026-08-01 | feature | tile-model-meter | Each tile names its model; the context meter carries its own CONTEXT NN% label inside a taller track |
+| 1.14.1 | 2026-08-01 | fix | meter-legibility | Context label stays readable at every fill: dark copy clipped inside the bar, light copy on the bare track |
+| 1.15.0 | 2026-08-01 | feature | hw2-device-ui | The device drives itself: drift home + wake to queue, pulsing blocked edge, destructive two-press arming with 6s undo, intent line on every ask, desk-clock ambient, tile spec line with 56px mascot |
+| 1.16.0 | 2026-08-02 | feature | mascot-toggle | Tap the clock screen to turn the wandering sprite off or back on; the choice survives reboots |
+| 1.16.1 | 2026-08-02 | fix | readme-install | README rewritten as a step-by-step install guide for non-technical readers, with verification and troubleshooting |
+| 1.16.2 | 2026-08-02 | fix | empty-fleet | The clock screen shows no session lamp when nothing is running, instead of one stray gray box |
+| 1.16.3 | 2026-08-02 | fix | esc-clears-asks | Esc in the terminal now clears the device ask too — no more stuck question cards re-raising dead dialogs |
+| 1.16.4 | 2026-08-02 | fix | no-drift | The device stops drifting back to the clock after 5s idle — the screen you leave it on stays put |
 | 1.17.0 | 2026-08-02 | feature | multi-question | A multi-question AskUserQuestion is one card you walk, edit and submit — multiSelect answerable at last, and every tap on the device works again |
 | 1.17.1 | 2026-08-02 | fix | answer-serialization | Answers given in quick succession are typed one at a time, so keystrokes can no longer interleave into the wrong session's terminal |
+| 1.17.2 | 2026-08-02 | fix | semver-ledger | The ledger is semver end to end — every past release renumbered to match its tag, and the release process documents the bump rules |
