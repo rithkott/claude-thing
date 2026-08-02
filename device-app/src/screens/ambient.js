@@ -7,9 +7,8 @@ import { fmtClock } from '../clock.js';
 // by outgrowing the clock.
 export function renderAmbient(state) {
   var lamps = '';
-  for (var i = 0; i < Math.max(state.sessions.length, 1) && i < 8; i++) {
-    var s = state.sessions[i];
-    lamps += '<span class="lamp ' + (s ? s.state : 'idle') + '"></span>';
+  for (var i = 0; i < state.sessions.length && i < 8; i++) {
+    lamps += '<span class="lamp ' + state.sessions[i].state + '"></span>';
   }
   var working = state.stats.active || 0;
   var resting = Math.max(0, state.sessions.length - working);
@@ -28,7 +27,7 @@ export function renderAmbient(state) {
     '<div class="bigclock">' + fmtClock() + '</div>' +
     head +
     '<div class="caption">' + working + ' WORKING · ' + resting + ' RESTING</div>' +
-    '<div class="fleet">' + lamps + '</div>' +
+    (lamps ? '<div class="fleet">' + lamps + '</div>' : '') +
     '<div class="tokens">' + fmtTokens(totalOut) + ' tokens out</div>' +
     '<div class="hint">' + (blocked ? 'press dial to answer' : 'press dial for sessions') + '</div>' +
     '</div>';
