@@ -128,6 +128,8 @@ Two things tell you it worked:
 - On the device, hold **preset 1 + preset 4** for one second. Your Claude Code
   sessions appear.
 
+If you're reflashing your Car Thing to update to a newer version of the firmware, make sure to forget device in your bluetooth menu and repair from scratch. It will not automatically reconnect.
+
 That same hold is the mode switch from then on — Claude mode to music mode and
 back. It sticks across reboots.
 
