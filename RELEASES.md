@@ -40,3 +40,4 @@ Claimed release numbers. One row per merge to `main`. See CLAUDE.md → Release 
 | r34 | 2026-08-02 | readme-install | README rewritten as a step-by-step install guide for non-technical readers, with verification and troubleshooting |
 | r35 | 2026-08-02 | empty-fleet | The clock screen shows no session lamp when nothing is running, instead of one stray gray box |
 | r36 | 2026-08-02 | esc-clears-asks | Esc in the terminal now clears the device ask too — no more stuck question cards re-raising dead dialogs |
+| r37 | 2026-08-02 | no-drift | The device stops drifting back to the clock after 5s idle — the screen you leave it on stays put |
