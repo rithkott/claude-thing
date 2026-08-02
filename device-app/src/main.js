@@ -17,10 +17,8 @@ var banner = document.getElementById('banner');
 var toastEl = document.getElementById('toast');
 var edgeEl = document.getElementById('edge');
 
-// The device drives itself: rest DRIFT_MS after the queue empties, arm a
-// destructive allow for ARM_MS, hold every queue answer UNDO_MS before it is
-// actually sent so back can take it back.
-var DRIFT_MS = 5000;
+// The device arms a destructive allow for ARM_MS, and holds every queue answer
+// UNDO_MS before it is actually sent so back can take it back.
 var ARM_MS = 4000;
 var UNDO_MS = 6000;
 
@@ -154,42 +152,18 @@ setInterval(function () {
   if (r.name === 'ambient' || r.name === 'list' || r.name === 'queue') render();
 }, 15000);
 
-// ---- the device drives itself -----------------------------------------------
-// It sits in peripheral vision — it should present, not be operated. Once the
-// queue is answered dry it waits DRIFT_MS and puts itself away; surface()
-// below wakes it straight back to the queue when the daemon needs a person.
-var driftAt = null;
-
-function driftTick(nowMs) {
-  var r = route().name;
-  if (store.get().asks.length || (r !== 'queue' && r !== 'list')) {
-    driftAt = null;
-    return;
-  }
-  if (driftAt === null) driftAt = nowMs + DRIFT_MS;
-  else if (nowMs >= driftAt) {
-    driftAt = null;
-    nav('#/ambient');
-  }
-}
-
-// Any touch of the controls proves a person is operating the device; drifting
-// home mid-interaction would pull the screen out from under their finger.
-function noteInput() {
-  if (driftAt !== null) driftAt = Date.now() + DRIFT_MS;
-}
-var INPUT_ACTIONS = ['dial', 'select', 'back', 'deny', 'tap',
-  'page-sessions', 'page-queue', 'page-usage', 'ambient', 'bt-manage'];
-for (var ia = 0; ia < INPUT_ACTIONS.length; ia++) onAction(INPUT_ACTIONS[ia], noteInput);
+// ---- the device stays put ---------------------------------------------------
+// It sits in peripheral vision, but the screen you left it on is the screen you
+// come back to: nothing navigates on its own timer. surface() below is the one
+// exception — it wakes the device to the queue when the daemon needs a person.
 
 // The prompt screen acts against a live deadline, so its countdown must tick
 // on its own clock. It used to ride the daemon's event stream — which now goes
 // quiet when nothing changes, exactly when a lone pending ask would sit
 // frozen at "45s left" until the 30s heartbeat. The same tick ages out an
-// armed destructive allow and drives the drift home.
+// armed destructive allow.
 setInterval(function () {
   var nowMs = Date.now();
-  driftTick(nowMs);
   var st = store.get();
   if (st.armed && nowMs > st.armed.expires) store.update({ armed: null });
   if (route().name === 'ask') render();
@@ -618,7 +592,6 @@ function restoreUndo() {
   var asks = store.get().asks.slice();
   var at = Math.min(u.index, asks.length);
   asks.splice(at, 0, u.ask);
-  driftAt = null;
   store.update({ asks: asks, undo: null, queueIndex: at, queueAnswering: false, queueChoice: 0 });
   toast('RESTORED');
   nav('#/queue');
