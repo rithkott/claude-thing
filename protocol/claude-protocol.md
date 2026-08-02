@@ -147,16 +147,26 @@ available: focus that session's terminal window and type the keys.
 ### The keys
 
 This is the one part of the system that cannot be derived from any code here —
-it is the terminal UI's contract, established by driving a live dialog by hand.
-It lives in `keySequence()` in `daemon/src/queue.js`, and the whole set is typed
-in **one** osascript call so focus cannot move mid-sequence:
+it is the terminal UI's contract, read out of the Claude Code CLI itself
+(2.1.220). It lives in `keySequence()` in `daemon/src/queue.js`, and the whole
+set is typed in **one** osascript call so focus cannot move mid-sequence:
 
 | Step | Keys |
 |---|---|
-| single-select question | the option's digit — it both picks and advances |
-| multiSelect question | a digit per pick (each **toggles**), then Return to commit and advance |
-| end of a multi-question dialog | Return, for the "Submit answers" step |
-| a one-question dialog | nothing extra — it has no submit step, and a stray Return would answer whatever came next |
+| single-select question | the option's digit — its `onAnswer` defaults `shouldAdvance` to true, so the digit both picks and advances |
+| multiSelect question | a digit per pick (each **toggles**), then **Tab** |
+| end of a multi-question dialog | Return, for the "Submit answers" confirm |
+| a one-question dialog | no trailing Return — it hides the Submit tab, and a stray Return would answer whatever came next |
+
+**Return does not commit a multiSelect.** Inside the list it activates the row
+under the cursor, so a Return there toggles option 1 again — which is exactly
+what a device answer used to do, twice, instead of submitting. The list's own
+move-on control is a button below the options labelled "Next" (or "Submit" on
+the last question), reachable only by walking the cursor past every option and
+the "Other" row. Tab does not depend on where the cursor is: a multi-question
+dialog draws a tab strip ending in a `✓ Submit` tab and hints "Tab/Arrow keys
+to navigate", and that Submit tab is the "Review your answers" screen the
+trailing Return confirms.
 
 The device holds every answer locally and sends the whole set at once, so a
 dialog is never left part-answered by a walk the user abandoned — and so any

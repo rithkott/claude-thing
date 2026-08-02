@@ -27,16 +27,28 @@ const QUESTION_TTL_MS = Number(process.env.CLAUDE_THING_QUESTION_TTL_MS ?? 10 * 
 const MAX_EXPIRED = 32;
 
 // The keys Claude Code's question dialog takes, in one place, because this is
-// the part of the system that cannot be derived from the code — it is the
-// terminal UI's contract and was established by driving a live dialog by hand:
+// the part of the system that cannot be derived from anything in this repo —
+// it is the terminal UI's contract. Read out of the CLI itself (2.1.220), not
+// guessed:
 //
-//   • single-select question — the option's digit both picks and advances.
-//   • multiSelect question   — each digit TOGGLES its option; Return commits
-//                              the toggles and advances. No picks at all is a
-//                              valid answer: Return alone, no digits.
-//   • more than one question — the dialog ends on a "Submit answers" step that
-//                              Return confirms. A one-question dialog has no
-//                              such step and must not get a trailing Return.
+//   • single-select question — the option's digit picks it AND advances. Its
+//     onAnswer defaults shouldAdvance to true, which bumps
+//     currentQuestionIndex, so nothing else is needed to move on.
+//
+//   • multiSelect question — each digit TOGGLES its option and the dialog
+//     stays put. Return does NOT commit: inside the list it activates the row
+//     under the cursor, so a Return here just toggles option 1 again. The
+//     list's own move-on control is a button below the options labelled
+//     "Next" (or "Submit" on the last question), reachable only by walking the
+//     cursor down past every option and the "Other" row. TAB is the way out
+//     that does not depend on where the cursor is: a multi-question dialog
+//     draws a tab strip and hints "Tab/Arrow keys to navigate", and tabs:next
+//     is bound whenever the dialog is not inside a text input.
+//
+//   • after the last question — the tab strip's final tab is "✓ Submit", which
+//     draws a "Review your answers" screen ending in a Submit answers /
+//     Cancel confirm. Return takes it. A one-question dialog hides that tab
+//     entirely and must not get a trailing Return.
 //
 // The sequence is the FINAL answer, never a replay of how the user got there.
 // The device's own toggling — on, off, on again — has no business reaching the
@@ -47,7 +59,8 @@ export function keySequence(questions, answers) {
   const keys = [];
   questions.forEach((q, i) => {
     for (const pick of answers[i]) keys.push(String(pick + 1));
-    if (q.multiSelect) keys.push('return');
+    // A single-select question has already advanced itself on the digit.
+    if (q.multiSelect) keys.push('tab');
   });
   if (questions.length > 1) keys.push('return');
   return keys;

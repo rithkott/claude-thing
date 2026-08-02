@@ -201,24 +201,24 @@ test('answering a group types every digit and the Submit Return', async () => {
   assert.equal(res.viaKeyboard, true);
   assert.deepEqual(calls.typed, [
     '1',                  // Auth method → OAuth, advances on its own
-    '1', '3', 'return',   // Environments → Dev + Production, Return commits
-    '2',                  // Rollout → Canary
+    '1', '3', 'tab',      // Environments → Dev + Production, Tab moves on
+    '2',                  // Rollout → Canary, advances itself
     'return',             // the "Submit answers" step
   ]);
   assert.equal(res.option, 'OAuth · Dev + Production · Canary');
   assert.equal(queue.size(), 0);
 });
 
-// Nothing ticked is an answer, and the sequence for it is the commit alone.
-// Refusing it stranded the device with a set it could never submit.
-test('a multiSelect answered with nothing ticked is typed as a bare Return', async () => {
+// Nothing ticked is an answer, and the sequence for it is the move-on key
+// alone. Refusing it stranded the device with a set it could never submit.
+test('a multiSelect answered with nothing ticked types no digits, just the move on', async () => {
   const { queue, calls } = setup();
   queue.onQuestion(MULTI_HOOK);
   const [ask] = queue.list();
 
   const res = await queue.answerQuestion(ask.id, [[1], [], [0]]);
   assert.equal(res.accepted, true);
-  assert.deepEqual(calls.typed, ['2', 'return', '1', 'return']);
+  assert.deepEqual(calls.typed, ['2', 'tab', '1', 'return']);
   assert.equal(res.option, 'API keys · none · All at once');
 });
 
@@ -227,17 +227,18 @@ test('the sequence is the final answer, never a replay of the toggling', () => {
   // two digits and a commit — a stray digit would flip a settled option.
   assert.deepEqual(
     keySequence([{ multiSelect: true }], [[0, 2]]),
-    ['1', '3', 'return'],
+    ['1', '3', 'tab'],
   );
 });
 
 test('keySequence: a lone question gets no trailing Return', () => {
-  assert.deepEqual(keySequence([{ multiSelect: false }], [[2]]), ['3']);
-  assert.deepEqual(
-    keySequence([{ multiSelect: true }], [[0, 1]]),
-    ['1', '2', 'return'],
-    'multiSelect still needs its own commit — but there is no submit step',
-  );
+  assert.deepEqual(keySequence([{ multiSelect: false }], [[2]]), ['3'],
+    'the digit picks and advances; a trailing Return would answer whatever came next');
+  // A lone multiSelect still needs a key to leave the list, but a
+  // one-question dialog hides the Submit tab, so there is no submit step for
+  // a trailing Return to take. Whether Tab moves anywhere with the tab strip
+  // hidden is the one part of the mapping not read out of the CLI.
+  assert.deepEqual(keySequence([{ multiSelect: true }], [[0, 1]]), ['1', '2', 'tab']);
 });
 
 test('an answer set that does not match the questions is refused', async () => {
