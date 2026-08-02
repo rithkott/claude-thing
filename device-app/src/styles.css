@@ -727,6 +727,53 @@ html, body {
   text-overflow: ellipsis;
 }
 
+/* A multiSelect question: the number is a toggle, so a picked row has to say so
+   from across a room — the digit becomes a tick and the rail lights up. Without
+   it, three picked options look exactly like none. */
+.qhero .qopt.picked { background: var(--card); box-shadow: inset 3px 0 0 var(--accent); }
+.qhero .qopt.picked .qlabel { color: var(--accent); }
+.qhero .qnum.on { color: var(--accent); font-weight: 700; }
+
+/* DONE and SUBMIT: rows that move the walk on rather than choose anything. They
+   never grow under the cursor — there is no description to read, and a row that
+   swells for one word steals height from the options above it. */
+.qhero .qopt.qstep {
+  flex: 0 0 auto;
+  max-height: 44px;
+  min-height: 40px;
+  border-style: dashed;
+  border-color: var(--rule);
+  background: transparent;
+}
+.qhero .qopt.qstep.selected {
+  flex: 0 0 auto;
+  max-height: 44px;
+  padding: 0 14px;
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--card);
+}
+.qhero .qopt.qstep .qlabel { font-size: 20px; letter-spacing: 0.04em; }
+.qhero .qopt.qstep.submit.selected { background: var(--accent); }
+.qhero .qopt.qstep.submit.selected .qlabel,
+.qhero .qopt.qstep.submit.selected .qnum,
+.qhero .qopt.qstep.submit.selected .qdesc { color: var(--bg); }
+
+/* The review step: every question over what it is currently answered as. Rows
+   stay one size — this is a list to scan, not a decision to read into, and the
+   answer sits under its own question rather than out on the right. */
+.qhero .qreview .qopt { max-height: 46px; }
+.qhero .qreview .qopt.selected { flex: 1.6 1 0; max-height: 70px; }
+.qhero .qreview .qlabel { font-size: 19px; }
+.qhero .qreview .qdesc {
+  flex: 0 1 auto;
+  margin-left: 0;
+  margin-top: 1px;
+  color: var(--bone);
+  white-space: nowrap;
+}
+.qhero .qreview .qopt.qstep .qdesc { margin-top: 0; margin-left: 12px; color: var(--dim); }
+
 .qrow {
   position: relative;
   display: flex;

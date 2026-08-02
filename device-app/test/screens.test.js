@@ -19,6 +19,7 @@ function baseState(over = {}) {
     sessions: [], stats: { active: 0, attention: 0 }, details: {}, asks: [],
     usage: null, daemonConnected: true, selectedIndex: 0, queueIndex: 0,
     queueAnswering: false, queueChoice: 0,
+    queueQIndex: 0, queueAnswers: [], queueReview: false, queueFromReview: false,
     btDevices: [], btDiscoverable: false, btIndex: 0, btMenu: null,
     btMenuIndex: 0, btBusy: null, btPairing: null, ...over,
   };
@@ -184,33 +185,9 @@ test('empty queue says so plainly', () => {
   assert.match(renderQueue(baseState()), /NOTHING WAITING ON YOU/);
 });
 
-test('question ask renders every option, numbered, with one selected', () => {
-  setQueueContext(0, 1);
-  const ask = {
-    kind: 'question', id: 'q', sessionName: 'proj', header: 'MIGRATION',
-    question: 'How?', options: [{ label: 'One', description: 'first' }, { label: 'Two' }, { label: 'Three' }],
-    createdTs: Date.now(),
-  };
-  const html = renderAsk(baseState(), ask, 1);
-  assert.match(html, /One/);
-  assert.match(html, /Two/);
-  assert.equal((html.match(/qopt selected/g) || []).length, 1);
-  assert.match(html, /dial answers/);
-});
-
-test('a long option list windows around the cursor and shows position', () => {
-  setQueueContext(0, 1);
-  const ask = {
-    kind: 'question', id: 'q', header: 'PICK', question: 'Which?',
-    options: Array.from({ length: 8 }, (_, i) => ({ label: `opt${i}` })), createdTs: Date.now(),
-  };
-  const html = renderAsk(baseState(), ask, 7);
-  // `qopt` not `qopts` — the latter is the container
-  assert.equal((html.match(/class="qopt[ "]/g) || []).length, 3, 'three visible at a time');
-  assert.match(html, /opt7/, 'the cursor is on screen');
-  assert.match(html, /8 \/ 8/);
-});
-
+// Questions are not rendered here any more — an ask can hold several of them
+// plus a review step, and that walk lives in the queue hero (see the hero
+// tests below). main.js sends any question route back to the queue.
 test('permission ask keeps allow / deny / skip with their hardware hints', () => {
   setQueueContext(0, 1);
   const ask = { kind: 'permission', id: 'p', sessionName: 'proj', tool: 'Bash', summary: 'ls', createdTs: Date.now() };
@@ -509,12 +486,108 @@ test('answering state only applies to a live question hero', () => {
   }));
   assert.doesNotMatch(perm, /answering/, 'a permission has no list to open');
   assert.match(perm, /ALLOW/);
+});
 
-  const expired = renderQueue(baseState({
+// A timed-out question is not a spent one: the dialog is still up in the
+// terminal and the daemon can still type into it. So the card says where it
+// went and stays answerable, unlike a timed-out permission whose hook response
+// is gone.
+test('a timed-out question keeps its options and says it is still in the terminal', () => {
+  const idle = renderQueue(baseState({
+    asks: [questionAsk({ expired: true, expiredTs: Date.now() })],
+  }));
+  assert.match(idle, /STILL OPEN IN TERMINAL/);
+  assert.match(idle, /qchip answer/, 'and it can still be opened');
+
+  const open = renderQueue(baseState({
     asks: [questionAsk({ expired: true, expiredTs: Date.now() })],
     queueAnswering: true,
   }));
-  assert.doesNotMatch(expired, /qopts/, 'an expired question cannot be answered here');
+  assert.match(open, /qopts/, 'the list opens on a timed-out question too');
+});
+
+// One AskUserQuestion call is one dialog and one card, however many questions
+// it holds. The card walks them, then shows a review step whose SUBMIT is what
+// finally sends — which is the only way the dialog's own "Submit answers" step
+// ever gets pressed, and the only way an earlier answer stays changeable.
+const groupAsk = (over = {}) => ({
+  kind: 'question', id: 'g1', sessionName: 'proj', createdTs: Date.now(),
+  questions: [
+    { header: 'AUTH', question: 'How should callers authenticate?', multiSelect: false,
+      options: [{ label: 'OAuth' }, { label: 'API keys' }] },
+    { header: 'ENVS', question: 'Which environments?', multiSelect: true,
+      options: [{ label: 'Dev' }, { label: 'Staging' }, { label: 'Production' }] },
+    { header: 'ROLLOUT', question: 'How fast?', multiSelect: false,
+      options: [{ label: 'All at once' }, { label: 'Canary' }] },
+  ],
+  header: 'AUTH', question: 'How should callers authenticate?', options: [{ label: 'OAuth' }, { label: 'API keys' }],
+  ...over,
+});
+
+test('a group card says how many questions it holds before it is opened', () => {
+  const html = renderQueue(baseState({ asks: [groupAsk()] }));
+  assert.match(html, /QUESTION · 3 PARTS/);
+  assert.match(html, /3 questions · press dial/);
+});
+
+test('an opened group shows which question it is on, and only that one', () => {
+  const html = renderQueue(baseState({
+    asks: [groupAsk()], queueAnswering: true, queueQIndex: 1, queueAnswers: [[0], [], []],
+  }));
+  assert.match(html, /QUESTION · 2 OF 3/);
+  assert.match(html, /Which environments\?/, 'the summary follows the walk');
+  assert.doesNotMatch(html, /OAuth/, 'the answered question is not still on screen');
+  assert.match(html, /Staging/);
+});
+
+test('a multiSelect question shows its picks and a DONE row to move on', () => {
+  const html = renderQueue(baseState({
+    asks: [groupAsk()], queueAnswering: true, queueQIndex: 1,
+    queueAnswers: [[0], [0, 2], []], queueChoice: 0,
+  }));
+  assert.match(html, /qopt selected picked"[^>]*data-id="0"/, 'a picked row says so');
+  assert.match(html, /qnum on">✓/, 'the number is a tick once it is picked');
+  assert.match(html, /qopt qstep[^>]*data-id="3"/, 'DONE sits after the three options');
+  assert.match(html, /2 selected/);
+  assert.match(html, /done when set/, 'and the hint says the press does not commit');
+});
+
+test('a single-select question has no DONE row — its press is the commit', () => {
+  const html = renderQueue(baseState({
+    asks: [groupAsk()], queueAnswering: true, queueQIndex: 0, queueAnswers: [[], [], []],
+  }));
+  assert.doesNotMatch(html, /qstep/);
+  assert.match(html, /press answers/);
+});
+
+test('the review step lists every answer and offers SUBMIT', () => {
+  const html = renderQueue(baseState({
+    asks: [groupAsk()], queueAnswering: true, queueReview: true, queueChoice: 3,
+    queueAnswers: [[1], [0, 2], [1]],
+  }));
+  assert.match(html, /QUESTION · REVIEW/);
+  assert.match(html, /AUTH/);
+  assert.match(html, /API keys/);
+  assert.match(html, /Dev · Production/, 'a multiSelect answer reads as all of its picks');
+  assert.match(html, /Canary/);
+  assert.equal((html.match(/data-action="queue-review"/g) || []).length, 4,
+    'three questions to go back into, plus SUBMIT');
+  assert.match(html, /qstep submit selected/, 'the cursor is on SUBMIT');
+  assert.match(html, /sends all 3 answers/);
+});
+
+test('an unanswered question shows as blank in review rather than guessing one', () => {
+  const html = renderQueue(baseState({
+    asks: [groupAsk()], queueAnswering: true, queueReview: true,
+    queueAnswers: [[0], [], [1]],
+  }));
+  assert.match(html, /<span class="qdesc">—<\/span>/);
+});
+
+test('a lone question renders exactly as it did — no part count, no review', () => {
+  const html = renderQueue(baseState({ asks: [questionAsk()] }));
+  assert.match(html, /class="qkind">QUESTION</, 'no "N PARTS" for a single question');
+  assert.match(html, /4 options · press dial/);
 });
 
 test('a question hero opens its list on tap; stack rows promote to hero', () => {

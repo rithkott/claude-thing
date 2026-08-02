@@ -86,25 +86,61 @@ export function startMockSource({ store, permissionBridge, queue }) {
     );
   }, 60_000);
 
-  // a scripted multiple-choice question so the queue can be exercised in dev
+  // Scripted questions so the queue can be exercised in dev. It alternates
+  // between the two shapes that behave differently end to end: one question
+  // answered by a single press, and a multi-question dialog with a multiSelect
+  // in it — the one that needs the stepper, the review step and a Submit.
+  const QUESTIONS = [
+    [{
+      header: 'Deploy target',
+      question: 'Where should this build go?',
+      multiSelect: false,
+      options: [
+        { label: 'Staging', description: 'Safe. Runs the smoke suite first.' },
+        { label: 'Production', description: 'Ships to users immediately.' },
+        { label: 'Skip deploy', description: 'Build only, keep the artifact.' },
+        { label: 'Preview branch', description: 'Ephemeral URL for review.' },
+      ],
+    }],
+    [
+      {
+        header: 'Auth method',
+        question: 'How should the API authenticate callers?',
+        multiSelect: false,
+        options: [
+          { label: 'OAuth', description: 'Delegated, no passwords stored here.' },
+          { label: 'API keys', description: 'Simplest. Rotation is on you.' },
+          { label: 'mTLS', description: 'Strongest, painful to operate.' },
+        ],
+      },
+      {
+        header: 'Environments',
+        question: 'Which environments get the new pipeline?',
+        multiSelect: true,
+        options: [
+          { label: 'Dev', description: 'Rebuilt on every push.' },
+          { label: 'Staging', description: 'Mirrors production data shape.' },
+          { label: 'Production', description: 'Customer traffic.' },
+        ],
+      },
+      {
+        header: 'Rollout',
+        question: 'How fast should it go out?',
+        multiSelect: false,
+        options: [
+          { label: 'All at once', description: 'One deploy, one blast radius.' },
+          { label: 'Canary 10%', description: 'Watch an hour, then widen.' },
+        ],
+      },
+    ],
+  ];
+  let questionTurn = 0;
   const quest = setInterval(() => {
     if (!queue) return;
     queue.onQuestion({
       session_id: ids[1],
       tool_name: 'AskUserQuestion',
-      tool_input: {
-        questions: [{
-          header: 'Deploy target',
-          question: 'Where should this build go?',
-          multiSelect: false,
-          options: [
-            { label: 'Staging', description: 'Safe. Runs the smoke suite first.' },
-            { label: 'Production', description: 'Ships to users immediately.' },
-            { label: 'Skip deploy', description: 'Build only, keep the artifact.' },
-            { label: 'Preview branch', description: 'Ephemeral URL for review.' },
-          ],
-        }],
-      },
+      tool_input: { questions: QUESTIONS[questionTurn++ % QUESTIONS.length] },
     });
   }, 90_000);
 

@@ -1,13 +1,16 @@
 import { esc, isDestructive } from './helpers.js';
 import { now } from '../clock.js';
 
-// Fullscreen prompt view — the focused answer screen, opened from a session or
-// from the queue. Unlike the queue this one keeps a countdown, because here you
-// are acting against a live deadline rather than surveying what is waiting.
+// Fullscreen prompt view — the focused answer screen for a permission, opened
+// from a session or from the queue. Unlike the queue this one keeps a
+// countdown, because here you are acting against a live deadline rather than
+// surveying what is waiting.
+//
+// Questions do not come here. One question ask is one terminal dialog and may
+// hold several questions plus a review step, and that walk lives in the queue
+// hero — in one place, not two (main.js sends any question route back there).
 export function renderAsk(state, ask, choice) {
-  return ask.kind === 'question'
-    ? renderQuestion(state, ask, choice)
-    : renderPermissionAsk(state, ask, choice);
+  return renderPermissionAsk(state, ask, choice);
 }
 
 function head(ask, label, klass) {
@@ -90,32 +93,3 @@ function renderPermissionAsk(state, ask, choice) {
     '</div></div>';
 }
 
-function renderQuestion(state, ask, choice) {
-  var options = ask.options || [];
-  // keep the cursor on screen: a window of 3 options at a time
-  var start = Math.max(0, Math.min(choice - 1, options.length - 3));
-  if (start < 0) start = 0;
-  var shown = options.slice(start, start + 3);
-
-  var opts = '';
-  for (var i = 0; i < shown.length; i++) {
-    var idx = start + i;
-    var o = shown[i];
-    opts +=
-      '<div class="qopt' + (idx === choice ? ' selected' : '') +
-      '" data-action="ask-choice" data-id="' + idx + '">' +
-      '<span class="qnum">' + (idx + 1) + '</span>' +
-      '<div class="qtext"><div class="qlabel">' + esc(o.label) + '</div>' +
-      (o.description ? '<div class="qdesc">' + esc(o.description) + '</div>' : '') +
-      '</div></div>';
-  }
-  var more = options.length > 3
-    ? '<div class="qmore">' + (choice + 1) + ' / ' + options.length + ' · turn dial or swipe for more</div>'
-    : '';
-
-  return '<div class="perm question">' + head(ask, esc(ask.header || 'QUESTION'), ' coral') +
-    '<div class="qprompt">' + esc(ask.question) + '</div>' +
-    '<div class="qopts">' + opts + '</div>' + more +
-    '<div class="qhint">dial answers · back leaves it</div>' +
-    '</div>';
-}

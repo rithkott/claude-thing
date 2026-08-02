@@ -9,8 +9,12 @@ var state = {
   // Everything waiting on a human, oldest first. Two kinds:
   //   permission — {kind:'permission', id, sessionId, tool, summary, intent,
   //                 createdTs, timeoutMs}
-  //   question   — {kind:'question', id, sessionId, header, question, intent,
-  //                 options:[{label, description}], multiSelect, createdTs}
+  //   question   — {kind:'question', id, sessionId, intent, createdTs,
+  //                 questions:[{header, question, options:[{label,
+  //                 description}], multiSelect}]}
+  // One question ask is one terminal dialog, however many questions it holds;
+  // header/question/options/multiSelect are carried alongside as mirrors of
+  // questions[0] for the card's summary line.
   asks: [],
   usage: null,          // latest claude.usage.update payload
   daemonConnected: true,
@@ -18,6 +22,14 @@ var state = {
   queueIndex: 0,        // queue list cursor
   queueAnswering: false, // question hero's option list is open in place
   queueChoice: 0,        // cursor within that list
+  // A question ask can hold several questions — one terminal dialog, walked
+  // here one question at a time. Nothing is sent until the review step's
+  // SUBMIT, so every answer stays editable until then.
+  queueQIndex: 0,        // which question of the ask is open
+  queueAnswers: [],      // number[][] — option indices picked, per question
+  queueReview: false,    // the review + SUBMIT step is showing
+  queueFromReview: false, // this question was opened from review — an edit, so
+                          // answering it returns there rather than walking on
   armed: null,          // {id, expires} — destructive ask half-pressed
   undo: null,           // {ask, index, choice, expires} — answer held, undoable
   btDevices: [],        // [{address, name, paired, connected}]
@@ -31,6 +43,22 @@ var state = {
 };
 
 var subs = [];
+
+// The in-progress answer, wound back to nothing. Every path that changes which
+// ask the hero is showing goes through this: a half-walked set of answers must
+// never survive onto a different ask, where its indices mean other options.
+export function closedAnswer() {
+  return {
+    queueAnswering: false, queueChoice: 0, queueQIndex: 0, queueAnswers: [],
+    queueReview: false, queueFromReview: false,
+  };
+}
+
+function withClosedAnswer(fields) {
+  var out = closedAnswer();
+  for (var k in fields) out[k] = fields[k];
+  return out;
+}
 
 export function get() { return state; }
 
@@ -124,7 +152,7 @@ export function reconcileAsks(list) {
     if (same) return next.length;
   }
   var qi = Math.min(state.queueIndex, Math.max(0, next.length - 1));
-  update({ asks: next, queueIndex: qi, queueAnswering: false, queueChoice: 0 });
+  update(withClosedAnswer({ asks: next, queueIndex: qi }));
   return next.length;
 }
 
@@ -156,7 +184,7 @@ export function sweepExpired(ttlMs) {
     var qi = Math.min(state.queueIndex, Math.max(0, next.length - 1));
     // The hero may have changed under an open option list; close it rather
     // than leave the list pointing at a different ask.
-    update({ asks: next, queueIndex: qi, queueAnswering: false, queueChoice: 0 });
+    update(withClosedAnswer({ asks: next, queueIndex: qi }));
   }
 }
 
@@ -166,7 +194,7 @@ export function resolveAsk(id) {
     if (state.asks[i].id !== id) next.push(state.asks[i]);
   }
   var qi = Math.min(state.queueIndex, Math.max(0, next.length - 1));
-  var fields = { asks: next, queueIndex: qi, queueAnswering: false, queueChoice: 0 };
+  var fields = withClosedAnswer({ asks: next, queueIndex: qi });
   if (state.armed && state.armed.id === id) fields.armed = null;
   update(fields);
 }

@@ -18,6 +18,7 @@ function setup(focusResult = { focused: true, exact: false, app: 'Terminal' }) {
   const focus = {
     async focusSession() { return focusResult; },
     async typeKey(ch) { calls.typed.push(ch); return { typed: true }; },
+    async typeSequence(keys) { for (const k of keys) calls.typed.push(k); return { typed: true }; },
   };
   const queue = createQueue({ emit: (topic, data) => events.push({ topic, data }), store, focus });
   return { queue, events, calls };
