@@ -158,6 +158,25 @@ set is typed in **one** osascript call so focus cannot move mid-sequence:
 | end of a multi-question dialog | Return, for the "Submit answers" confirm |
 | a one-question dialog | no trailing Return — it hides the Submit tab, and a stray Return would answer whatever came next |
 
+### One answer at a time
+
+There is one keyboard and one frontmost window, so `claude.question.answer`
+serializes: focus and typing run together inside a single lock in
+`daemon/src/focus.js`, and `claude.session.focus` takes the same lock. Nothing
+else enforces it — the hub handles every socket frame in its own task, so two
+answers arriving together would otherwise interleave their keystrokes into
+whichever window was in front, which across sessions means digits landing in
+the wrong terminal. A raise slipping between an answer's focus and its
+keystrokes is the same bug, hence the shared lock.
+
+Answers do arrive in bursts. The device holds each answer for its undo window,
+but starting a new one flushes the previous immediately — so answering three
+cards quickly sends three answers back to back, and only the last waits.
+
+An answer that is resolved while queued behind another — the terminal answered
+it, or Esc killed it — is dropped rather than typed: the dialog it was meant
+for is gone, and its keys would answer whatever replaced it.
+
 **Return does not commit a multiSelect.** Inside the list it activates the row
 under the cursor, so a Return there toggles option 1 again — which is exactly
 what a device answer used to do, twice, instead of submitting. The list's own

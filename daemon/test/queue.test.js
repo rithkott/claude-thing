@@ -9,9 +9,19 @@ function setup(focusBehaviour = {}) {
   store.touch('sess-1', { name: 'my-project' });
   const calls = { focus: 0, typed: [] };
 
+  // A real serializer, not a pass-through: the ordering it enforces is the
+  // thing under test, so the stub must not paper over it.
+  let chain = Promise.resolve();
+
   const focus = {
+    exclusive(fn) {
+      const run = chain.then(() => fn());
+      chain = run.then(() => {}, () => {});
+      return run;
+    },
     async focusSession() {
       calls.focus++;
+      if (focusBehaviour.beforeFocus) await focusBehaviour.beforeFocus();
       return focusBehaviour.focus || { focused: true, exact: true, app: 'Terminal' };
     },
     async typeKey(ch) {
@@ -261,6 +271,94 @@ test('an answer set that does not match the questions is refused', async () => {
   }
   assert.deepEqual(calls.typed, [], 'nothing is typed until the whole set is valid');
   assert.equal(queue.size(), 1, 'and the ask is still answerable');
+});
+
+// There is one keyboard and one frontmost window. The hub handles every socket
+// frame in its own task, so two answers arriving together used to run their
+// focus-then-type concurrently — keystrokes interleaving into whichever window
+// was in front, which across sessions means digits in the wrong terminal.
+test('two answers at once are typed one after the other, never interleaved', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  let first = true;
+  const { queue, calls } = setup({
+    // The first answer stalls inside its focus, exactly where a slow or wedged
+    // osascript would. Nothing else may type while it is in there.
+    beforeFocus: () => {
+      if (!first) return Promise.resolve();
+      first = false;
+      return held;
+    },
+  });
+  queue.onQuestion(QUESTION_HOOK);
+  queue.onQuestion({ ...QUESTION_HOOK, tool_input: {
+    questions: [{ header: 'Second', question: 'later?', options: [{ label: 'a' }, { label: 'b' }] }],
+  } });
+  const [a, b] = queue.list();
+
+  const pa = queue.answerQuestion(a.id, [[0]]);
+  const pb = queue.answerQuestion(b.id, [[1]]);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(calls.focus, 1, 'the second answer has not even focused yet');
+  assert.deepEqual(calls.typed, [], 'and nothing has been typed');
+
+  release();
+  await Promise.all([pa, pb]);
+  assert.deepEqual(calls.typed, ['1', '2'], 'in order, one sequence then the other');
+  assert.equal(calls.focus, 2);
+});
+
+test('an answer resolved while it waited its turn types nothing', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  let first = true;
+  const { queue, calls } = setup({
+    beforeFocus: () => {
+      if (!first) return Promise.resolve();
+      first = false;
+      return held;
+    },
+  });
+  queue.onQuestion(QUESTION_HOOK);
+  queue.onQuestion({ ...QUESTION_HOOK, tool_input: {
+    questions: [{ header: 'Second', question: 'later?', options: [{ label: 'a' }, { label: 'b' }] }],
+  } });
+  const [a, b] = queue.list();
+
+  const pa = queue.answerQuestion(a.id, [[0]]);
+  const pb = queue.answerQuestion(b.id, [[1]]);
+  await new Promise((r) => setImmediate(r));   // a is inside its turn, b is behind it
+  // The terminal answers the whole session itself while b is queued behind a.
+  queue.onQuestionAnswered({ session_id: 'sess-1' });
+  release();
+  await pa;
+
+  const res = await pb;
+  assert.equal(res.accepted, false);
+  assert.equal(res.reason, 'already resolved',
+    'typing into a dialog that is gone answers whatever replaced it');
+  assert.deepEqual(calls.typed, ['1'], 'only the answer that got there first');
+});
+
+test('a turn that throws does not wedge every answer behind it', async () => {
+  let first = true;
+  const { queue, calls } = setup({
+    beforeFocus: () => {
+      if (!first) return Promise.resolve();
+      first = false;
+      return Promise.reject(new Error('osascript exploded'));
+    },
+  });
+  queue.onQuestion(QUESTION_HOOK);
+  queue.onQuestion({ ...QUESTION_HOOK, tool_input: {
+    questions: [{ header: 'Second', question: 'later?', options: [{ label: 'a' }, { label: 'b' }] }],
+  } });
+  const [a, b] = queue.list();
+
+  await assert.rejects(queue.answerQuestion(a.id, [[0]]));
+  const res = await queue.answerQuestion(b.id, [[1]]);
+  assert.equal(res.accepted, true);
+  assert.deepEqual(calls.typed, ['2'], 'the chain survived the failed turn');
 });
 
 test('the terminal answering it clears our copy', () => {
