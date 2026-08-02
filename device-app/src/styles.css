@@ -745,6 +745,21 @@ html, body {
   border-color: var(--rule);
   background: transparent;
 }
+/* DONE is the only row that moves a multiSelect on — a press on an option just
+   toggles it. Dashed-and-dim read as a disabled placeholder, so it got skipped
+   and the walk felt stuck on a question that would not advance. It carries the
+   accent whether the cursor is on it or not. */
+.qhero .qopt.qstep.next {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--card);
+}
+.qhero .qopt.qstep.next .qnum,
+.qhero .qopt.qstep.next .qlabel { color: var(--accent); }
+.qhero .qopt.qstep.next.selected { background: var(--accent); }
+.qhero .qopt.qstep.next.selected .qnum,
+.qhero .qopt.qstep.next.selected .qlabel,
+.qhero .qopt.qstep.next.selected .qdesc { color: var(--bg); }
 .qhero .qopt.qstep.selected {
   flex: 0 0 auto;
   max-height: 44px;

@@ -547,9 +547,11 @@ test('a multiSelect question shows its picks and a DONE row to move on', () => {
   }));
   assert.match(html, /qopt selected picked"[^>]*data-id="0"/, 'a picked row says so');
   assert.match(html, /qnum on">✓/, 'the number is a tick once it is picked');
-  assert.match(html, /qopt qstep[^>]*data-id="3"/, 'DONE sits after the three options');
-  assert.match(html, /2 selected/);
-  assert.match(html, /done when set/, 'and the hint says the press does not commit');
+  assert.match(html, /qopt qstep next[^>]*data-id="3"/, 'DONE sits after the three options');
+  assert.match(html, /2 selected · preset 4/);
+  // A press on an option only toggles it, so both the row and the hint have to
+  // name what actually moves the walk on.
+  assert.match(html, /press picks · preset 4 when done/);
 });
 
 test('a single-select question has no DONE row — its press is the commit', () => {

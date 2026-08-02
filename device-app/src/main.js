@@ -12,7 +12,7 @@ import * as mascot from './mascot.js';
 import { renderBluetooth, btMenuActions, renderBtPairing } from './screens/bluetooth.js';
 import { isDestructive } from './screens/helpers.js';
 import {
-  questionsOf, rowCount, startWalk, pressOptionAt, pressReviewAt, backStepAt,
+  questionsOf, currentQuestion, rowCount, startWalk, pressOptionAt, pressReviewAt, backStepAt,
 } from './answering.js';
 
 var app = document.getElementById('app');
@@ -337,6 +337,15 @@ onAction('deny', function () {
     var state = store.get();
     var hero = state.asks[Math.min(state.queueIndex, state.asks.length - 1)];
     if (!hero) return;
+    // On a multiSelect question the dial press toggles, so nothing under the
+    // cursor ever moves you on — the DONE row does, and hunting for it is how
+    // the walk felt stuck. Preset 4 is the device's one context action and is
+    // otherwise idle during a question, so here it means "done picking".
+    if (state.queueAnswering && !state.queueReview && hero.kind === 'question') {
+      var q = currentQuestion(hero, state);
+      if (q && q.multiSelect) return pressOption(hero, q.options.length);
+      return;
+    }
     // An expired ask was answered in the terminal; deny is how the dead slot
     // is dismissed without pretending an answer went anywhere.
     if (hero.expired) {

@@ -44,9 +44,12 @@ export function renderQueue(state) {
   if (answering) {
     var others = state.asks.length - 1;
     foot = others > 0 ? others + ' more waiting' : 'last one';
-    hint = state.queueReview ? 'dial moves · press edits or submits · back returns'
-      : hasDoneRow(currentQuestion(heroAsk, state)) ? 'dial moves · press picks · done when set'
-      : 'dial moves · press answers · back closes';
+    // On a multiSelect the press toggles and pressing again just untoggles, so
+    // the hint has to name what actually moves you on rather than imply the
+    // press does.
+    if (state.queueReview) hint = 'dial moves · press edits or submits · back returns';
+    else if (hasDoneRow(currentQuestion(heroAsk, state))) hint = 'press picks · preset 4 when done';
+    else hint = 'dial moves · press answers · back closes';
   } else {
     var shown = 1 + Math.min(STACK_MAX, state.asks.length - 1);
     foot = state.asks.length + ' waiting on you' +
@@ -179,11 +182,14 @@ function heroOptions(a, state) {
     }
   }
   if (multi) {
+    // The only row that moves you on, so it has to read as an action rather
+    // than a fourth thing to tick — and it names the hardware button that does
+    // the same job, because a press on an option only ever toggles it.
     var n = picksAt(state, qi).length;
-    html += '<div class="qopt qstep' + (choice === opts.length ? ' selected' : '') +
+    html += '<div class="qopt qstep next' + (choice === opts.length ? ' selected' : '') +
       '" data-action="queue-choice" data-id="' + opts.length + '">' +
       '<span class="qnum">›</span><span class="qlabel">DONE</span>' +
-      '<span class="qdesc">' + n + ' selected</span></div>';
+      '<span class="qdesc">' + n + ' selected · preset 4</span></div>';
   }
   return html + '</div>';
 }
