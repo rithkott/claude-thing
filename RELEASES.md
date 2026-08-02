@@ -39,3 +39,4 @@ Claimed release numbers. One row per merge to `main`. See CLAUDE.md → Release 
 | r33 | 2026-08-02 | mascot-toggle | Tap the clock screen to turn the wandering sprite off or back on; the choice survives reboots |
 | r34 | 2026-08-02 | readme-install | README rewritten as a step-by-step install guide for non-technical readers, with verification and troubleshooting |
 | r35 | 2026-08-02 | empty-fleet | The clock screen shows no session lamp when nothing is running, instead of one stray gray box |
+| r36 | 2026-08-02 | esc-clears-asks | Esc in the terminal now clears the device ask too — no more stuck question cards re-raising dead dialogs |
