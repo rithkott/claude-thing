@@ -18,6 +18,13 @@ import { log } from './log.js';
 
 const SESSIONS_DIR = path.join(CLAUDE_DIR, 'sessions');
 
+// Pause between keys of a typed sequence, in seconds. Long enough for Claude
+// Code's dialog to advance to the next question before the next digit lands.
+const KEY_GAP_S = 0.15;
+
+// The non-printing keys a question dialog needs, as System Events key codes.
+const KEY_CODES = { return: 36, tab: 48 };
+
 function osa(script, timeout = 5000) {
   return new Promise((resolve) => {
     execFile('osascript', ['-e', script], { timeout }, (err, stdout, stderr) => {
@@ -197,5 +204,40 @@ export function createFocus() {
     return { typed: false, reason: r.error };
   }
 
-  return { focusSession, typeKey, lookupSession };
+  // Types a whole sequence into the focused window in ONE osascript call.
+  // One call on purpose: a multi-question dialog needs several keys landing in
+  // the same window, and re-invoking osascript per key opens a gap where focus
+  // can move and half the answer lands somewhere else.
+  //
+  // A key is either a single character (sent as `keystroke`) or one of the
+  // named non-printing keys below. The delay between keys is what lets the TUI
+  // redraw and move to the next question before the following key arrives.
+  async function typeSequence(keys) {
+    if (automationDenied) return { typed: false, reason: 'automation denied' };
+    const lines = [];
+    for (const key of keys) {
+      if (lines.length) lines.push(`  delay ${KEY_GAP_S}`);
+      if (KEY_CODES[key] !== undefined) {
+        lines.push(`  key code ${KEY_CODES[key]}`);
+        continue;
+      }
+      const safe = String(key).slice(0, 1).replace(/["\\]/g, '');
+      if (!safe) return { typed: false, reason: 'nothing to type' };
+      lines.push(`  keystroke "${safe}"`);
+    }
+    if (!lines.length) return { typed: false, reason: 'nothing to type' };
+
+    const script = ['tell application "System Events"', ...lines, 'end tell'].join('\n');
+    const r = await osa(script, 3000 + keys.length * 400);
+    if (r.ok) return { typed: true };
+    if (r.denied) {
+      return {
+        typed: false,
+        reason: 'macOS denied Automation for System Events — allow it in System Settings › Privacy & Security › Automation',
+      };
+    }
+    return { typed: false, reason: r.error };
+  }
+
+  return { focusSession, typeKey, typeSequence, lookupSession };
 }

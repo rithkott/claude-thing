@@ -1,5 +1,8 @@
 import { esc, topbar, isDestructive } from './helpers.js';
 import { now } from '../clock.js';
+import {
+  questionsOf, currentQuestion, picksAt, isPicked, hasDoneRow, answeredLabels,
+} from '../answering.js';
 
 // Triage, not a list of equals: the ask you would answer next owns the page and
 // carries its own actions, so a permission can be allowed without ever leaving
@@ -19,9 +22,10 @@ export function renderQueue(state) {
   var index = Math.min(state.queueIndex, state.asks.length - 1);
   var heroAsk = state.asks[index];
   // A question is answered in place: its option list opens inside the hero
-  // rather than routing to a whole-screen prompt for one press.
-  var answering = !!state.queueAnswering &&
-    heroAsk.kind === 'question' && !heroAsk.expired;
+  // rather than routing to a whole-screen prompt for one press. A timed-out
+  // question opens too — it is still up in the terminal and the daemon can
+  // still type into it, and a multi-question ask has nowhere else to be walked.
+  var answering = !!state.queueAnswering && heroAsk.kind === 'question';
 
   // While the list is open the stack rows give it their room; the footer keeps
   // the queue context alive so closing the list isn't a leap of faith.
@@ -40,7 +44,12 @@ export function renderQueue(state) {
   if (answering) {
     var others = state.asks.length - 1;
     foot = others > 0 ? others + ' more waiting' : 'last one';
-    hint = 'dial moves · press answers · back closes';
+    // On a multiSelect the press toggles and pressing again just untoggles, so
+    // the hint has to name what actually moves you on rather than imply the
+    // press does.
+    if (state.queueReview) hint = 'dial moves · press edits or submits · back returns';
+    else if (hasDoneRow(currentQuestion(heroAsk, state))) hint = 'press picks · preset 4 when done';
+    else hint = 'dial moves · press answers · back closes';
   } else {
     var shown = 1 + Math.min(STACK_MAX, state.asks.length - 1);
     foot = state.asks.length + ' waiting on you' +
@@ -49,20 +58,20 @@ export function renderQueue(state) {
   }
 
   return '<div class="screen">' + bar +
-    '<div class="qwrap">' + hero(heroAsk, answering, state.queueChoice, state.armed) + rows +
+    '<div class="qwrap">' + hero(heroAsk, answering, state) + rows +
     '<div class="qfoot"><span>' + esc(foot) + '</span>' +
     '<span class="qfoothint">' + esc(hint) + '</span></div>' +
     '</div></div>';
 }
 
-function hero(a, answering, choice, armed) {
+function hero(a, answering, state) {
   var isQuestion = a.kind === 'question';
   var kindClass = isQuestion ? ' question' : '';
   var nasty = !isQuestion && !a.expired && isDestructive(a);
-  // A question hero opens its options in place; a permission (or an expired
-  // ask) still routes to the prompt screen on tap.
-  var action = isQuestion && !a.expired ? 'queue-answer' : 'open-ask';
-  var kind = isQuestion ? 'QUESTION'
+  // A question hero opens its options in place, timed out or not; only a
+  // permission still routes to the prompt screen on tap.
+  var action = isQuestion ? 'queue-answer' : 'open-ask';
+  var kind = isQuestion ? questionKind(a, state, answering)
     : nasty ? 'PERMISSION REQUEST · DESTRUCTIVE' : 'PERMISSION REQUEST';
   // A command without intent is an approval made blind: what you asked for
   // sits right under the session name, and the layout pays for the line — the
@@ -80,21 +89,44 @@ function hero(a, answering, choice, armed) {
     '<span class="qwait">' + esc(waitLabel(a)) + '</span></div>' +
     '<div class="qherosession">' + esc(a.sessionName || 'session') + '</div>' +
     intent +
-    '<div class="qherosummary">' + esc(summarize(a)) + '</div>' +
-    (answering ? heroOptions(a, choice) : heroActions(a, isQuestion, nasty, armed)) +
+    '<div class="qherosummary">' + esc(summarize(a, state, answering)) + '</div>' +
+    (answering ? heroAnswering(a, state) : heroActions(a, isQuestion, nasty, state.armed)) +
     '</div></div>';
+}
+
+// The kind line carries where you are in the dialog, because a multi-question
+// ask is several decisions deep and a card that just says QUESTION gives no
+// way to tell the second from the third.
+function questionKind(a, state, answering) {
+  var total = questionsOf(a).length;
+  if (answering && state.queueReview) return 'QUESTION · REVIEW';
+  if (total < 2) return 'QUESTION';
+  var at = Math.min(state.queueQIndex, total - 1) + 1;
+  return answering ? 'QUESTION · ' + at + ' OF ' + total
+    : 'QUESTION · ' + total + ' PARTS';
+}
+
+function heroAnswering(a, state) {
+  return state.queueReview ? heroReview(a, state) : heroOptions(a, state);
 }
 
 // A timed-out permission has nothing left to press: the hook response is spent,
 // so the chips are replaced by where the decision actually went.
 function heroActions(a, isQuestion, nasty, armed) {
-  if (a.expired) {
+  // A timed-out QUESTION is not spent: the dialog is still up in the terminal
+  // and the daemon can still type into it. So it says where it went and keeps
+  // its chip. A timed-out permission has nothing left to press.
+  if (a.expired && !isQuestion) {
     return '<div class="qactions"><div class="qexpired">HOOK TIMED OUT — ANSWER IN TERMINAL</div></div>';
   }
   if (isQuestion) {
-    var n = (a.options || []).length;
+    var qs = questionsOf(a);
+    var hint = qs.length > 1
+      ? qs.length + ' questions · press dial'
+      : qs[0].options.length + ' option' + (qs[0].options.length === 1 ? '' : 's') + ' · press dial';
     return '<div class="qactions">' +
-      chip('answer', 'ANSWER', n + ' option' + (n === 1 ? '' : 's') + ' · press dial', true) +
+      (a.expired ? '<div class="qexpired">TIMED OUT — STILL OPEN IN TERMINAL</div>' : '') +
+      chip('answer', 'ANSWER', hint, true) +
       '</div>';
   }
   // A destructive command must not cost the same gesture as "read that file":
@@ -122,23 +154,68 @@ function heroActions(a, isQuestion, nasty, armed) {
 // and stacks its label over its description with both wrapping, so the text
 // you are about to commit to is read in full, not guessed from an ellipsis.
 // Every dial turn re-renders the list, so the markup can differ per row.
-function heroOptions(a, choice) {
-  var opts = a.options || [];
+function heroOptions(a, state) {
+  var q = currentQuestion(a, state);
+  var opts = (q && q.options) || [];
+  var choice = state.queueChoice;
+  var multi = hasDoneRow(q);
+  var qi = Math.min(state.queueQIndex, questionsOf(a).length - 1);
   var html = '<div class="qopts">';
   for (var i = 0; i < opts.length; i++) {
-    var num = '<span class="qnum">' + (i + 1) + '</span>';
+    // On a multiSelect question the number is a toggle, not a commit, so the
+    // row has to show its own state — otherwise picking three options looks
+    // identical to picking none.
+    var on = multi && isPicked(state, qi, i);
+    var num = '<span class="qnum' + (on ? ' on' : '') + '">' +
+      (on ? '✓' : (i + 1)) + '</span>';
     var desc = opts[i].description
       ? '<span class="qdesc">' + esc(opts[i].description) + '</span>' : '';
+    var cls = 'qopt' + (i === choice ? ' selected' : '') + (on ? ' picked' : '');
     if (i === choice) {
-      html += '<div class="qopt selected" data-action="queue-choice" data-id="' + i + '">' +
+      html += '<div class="' + cls + '" data-action="queue-choice" data-id="' + i + '">' +
         num + '<div class="qtext"><span class="qlabel">' + esc(opts[i].label) + '</span>' +
         desc + '</div></div>';
     } else {
-      html += '<div class="qopt" data-action="queue-choice" data-id="' + i + '">' +
+      html += '<div class="' + cls + '" data-action="queue-choice" data-id="' + i + '">' +
         num + '<span class="qlabel">' + esc(opts[i].label) + '</span>' + desc +
         '</div>';
     }
   }
+  if (multi) {
+    // The only row that moves you on, so it has to read as an action rather
+    // than a fourth thing to tick — and it names the hardware button that does
+    // the same job, because a press on an option only ever toggles it.
+    var n = picksAt(state, qi).length;
+    html += '<div class="qopt qstep next' + (choice === opts.length ? ' selected' : '') +
+      '" data-action="queue-choice" data-id="' + opts.length + '">' +
+      '<span class="qnum">›</span><span class="qlabel">DONE</span>' +
+      '<span class="qdesc">' + n + ' selected · preset 4</span></div>';
+  }
+  return html + '</div>';
+}
+
+// The review step: every question with what it is currently answered as, and a
+// SUBMIT row. This is the whole point of holding the answers locally — nothing
+// has been typed into the terminal yet, so any row here is still changeable.
+function heroReview(a, state) {
+  var qs = questionsOf(a);
+  var choice = state.queueChoice;
+  var html = '<div class="qopts qreview">';
+  for (var i = 0; i < qs.length; i++) {
+    // "none" and "—" are different things: one is a multiSelect answered with
+    // nothing ticked, the other is a question not yet reached.
+    var chosen = answeredLabels(a, state, i) ||
+      (qs[i].multiSelect ? 'none' : '—');
+    html += '<div class="qopt' + (i === choice ? ' selected' : '') +
+      '" data-action="queue-review" data-id="' + i + '">' +
+      '<span class="qnum">' + (i + 1) + '</span>' +
+      '<div class="qtext"><span class="qlabel">' + esc(qs[i].header) + '</span>' +
+      '<span class="qdesc">' + esc(chosen) + '</span></div></div>';
+  }
+  html += '<div class="qopt qstep submit' + (choice === qs.length ? ' selected' : '') +
+    '" data-action="queue-review" data-id="' + qs.length + '">' +
+    '<span class="qnum">✓</span><span class="qlabel">SUBMIT</span>' +
+    '<span class="qdesc">sends all ' + qs.length + ' answers</span></div>';
   return html + '</div>';
 }
 
@@ -164,9 +241,14 @@ function stackRow(a) {
     '</div>';
 }
 
-function summarize(a) {
-  if (a.kind === 'question') return a.question;
-  return a.tool + '  ·  ' + a.summary;
+// While a group is being walked the summary is the question actually on
+// screen, not the first one — the header line says which of them it is.
+function summarize(a, state, answering) {
+  if (a.kind !== 'question') return a.tool + '  ·  ' + a.summary;
+  if (!answering) return a.question;
+  if (state.queueReview) return 'check your answers before they go';
+  var q = currentQuestion(a, state);
+  return q ? q.question : a.question;
 }
 
 // How long it has been waiting, never how long is left. A countdown turns a

@@ -45,7 +45,10 @@ hub.setMethods({
 
   // everything waiting on a human, for clients that connect mid-flight
   'claude.queue.list': async () => queueSnapshot(),
-  'claude.question.answer': async ({ id, optionIndex }) => queue.answerQuestion(id, optionIndex),
+  // answers is number[][] — one entry per question of the ask, each the option
+  // indices chosen for it. optionIndex is the pre-grouping single-question form.
+  'claude.question.answer': async ({ id, answers, optionIndex }) =>
+    queue.answerQuestion(id, answers ?? optionIndex),
 
   // bring a session's terminal window to the front, as if it were clicked
   'claude.session.focus': async ({ id }) => focus.focusSession(id),

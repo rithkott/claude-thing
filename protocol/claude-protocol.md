@@ -44,7 +44,7 @@ connected clients.
 | `claude.session.get` | `{id}` | `SessionDetail` (error `"unknown session"` if gone) |
 | `claude.permission.answer` | `{requestId, decision:"allow"\|"deny"}` | `{accepted:bool}` — idempotent; `false` when already resolved |
 | `claude.queue.list` | `{}` | `{asks:[Ask]}` — everything waiting on a human, oldest first |
-| `claude.question.answer` | `{id, optionIndex}` | `{accepted, viaKeyboard, option, focused?, reason?}` (see below) |
+| `claude.question.answer` | `{id, answers}` — `answers` is `number[][]`, one entry per question of the ask, each the option indices picked for it (`optionIndex` still accepted for a lone single-select question) | `{accepted, viaKeyboard, option, keys?, focused?, reason?}` (see below) |
 | `claude.session.focus` | `{id}` | `{focused, app?, exact?, reason?}` — raises that session's terminal window |
 | `claude.usage.get` | `{}` | `Usage` |
 
@@ -105,8 +105,16 @@ Stats = { active: number, attention: number }
 
 Ask =
   | { kind:"permission", id, sessionId, sessionName, tool, summary, intent, createdTs, timeoutMs }
-  | { kind:"question", id, sessionId, sessionName, header, question, intent,
-      options:[{label, description}], multiSelect, createdTs }
+  | { kind:"question", id, sessionId, sessionName, intent, createdTs,
+      questions: [{ header, question, options:[{label, description}], multiSelect }],
+      // mirrors of questions[0] — the card's summary line, and what a client
+      // that predates grouping reads
+      header, question, options, multiSelect }
+// One AskUserQuestion call is ONE dialog and one ask, however many questions it
+// carries: the terminal walks them in order and ends on a "Submit answers"
+// step. Splitting it per question leaves that step with no card and no
+// keypress, and the session blocked on a dialog every question of which was
+// answered.
 // intent: "you asked: " + the session's last user prompt (≤120 chars,
 // whitespace-collapsed), or "" when no prompt has been seen — the device
 // omits the hero's intent line rather than inventing one
@@ -134,15 +142,45 @@ be.** No Claude Code hook can supply a tool result — `PreToolUse` on
 `AskUserQuestion` can only allow, deny, or rewrite the question, and
 `PostToolUse` runs after the human has already answered. So the device learns
 about questions from the `PreToolUse` hook and answers them the only way
-available: focus that session's terminal window and type the option number.
+available: focus that session's terminal window and type the keys.
 
-`claude.question.answer` therefore reports how far it got:
+### The keys
+
+This is the one part of the system that cannot be derived from any code here —
+it is the terminal UI's contract, read out of the Claude Code CLI itself
+(2.1.220). It lives in `keySequence()` in `daemon/src/queue.js`, and the whole
+set is typed in **one** osascript call so focus cannot move mid-sequence:
+
+| Step | Keys |
+|---|---|
+| single-select question | the option's digit — its `onAnswer` defaults `shouldAdvance` to true, so the digit both picks and advances |
+| multiSelect question | a digit per pick (each **toggles**), then **Tab** |
+| end of a multi-question dialog | Return, for the "Submit answers" confirm |
+| a one-question dialog | no trailing Return — it hides the Submit tab, and a stray Return would answer whatever came next |
+
+**Return does not commit a multiSelect.** Inside the list it activates the row
+under the cursor, so a Return there toggles option 1 again — which is exactly
+what a device answer used to do, twice, instead of submitting. The list's own
+move-on control is a button below the options labelled "Next" (or "Submit" on
+the last question), reachable only by walking the cursor past every option and
+the "Other" row. Tab does not depend on where the cursor is: a multi-question
+dialog draws a tab strip ending in a `✓ Submit` tab and hints "Tab/Arrow keys
+to navigate", and that Submit tab is the "Review your answers" screen the
+trailing Return confirms.
+
+The device holds every answer locally and sends the whole set at once, so a
+dialog is never left part-answered by a walk the user abandoned — and so any
+answer stays editable until the last press. The daemon validates the set
+(one pick per single-select question, in-range indices, no repeats) before
+touching the keyboard, for the same reason.
+
+`claude.question.answer` reports how far it got:
 
 | Result | Meaning |
 |---|---|
-| `accepted:true, viaKeyboard:true` | the option was typed into the terminal |
-| `accepted:true, viaKeyboard:false` | window focused, but macOS would not let us type — the user presses the key |
-| `accepted:false` | no window to focus (background agent, or no registry entry); `reason` says which |
+| `accepted:true, viaKeyboard:true` | the whole sequence was typed into the terminal; `keys` is what was sent |
+| `accepted:true, viaKeyboard:false` | window focused, but macOS would not let us type — the user answers it |
+| `accepted:false` | no window to focus (background agent, or no registry entry), or the answer set did not match the ask; `reason` says which |
 
 Focus uses Claude Code's own session registry: `~/.claude/sessions/<pid>.json`
 maps `sessionId → pid`, `ps` maps pid → tty, and Terminal.app's AppleScript

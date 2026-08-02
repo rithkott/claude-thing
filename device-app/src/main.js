@@ -11,6 +11,9 @@ import { renderAmbient } from './screens/ambient.js';
 import * as mascot from './mascot.js';
 import { renderBluetooth, btMenuActions, renderBtPairing } from './screens/bluetooth.js';
 import { isDestructive } from './screens/helpers.js';
+import {
+  questionsOf, currentQuestion, rowCount, startWalk, pressOptionAt, pressReviewAt, backStepAt,
+} from './answering.js';
 
 var app = document.getElementById('app');
 var banner = document.getElementById('banner');
@@ -60,6 +63,13 @@ function render() {
   } else if (r.name === 'ask' && r.arg) {
     var ask = store.getAsk(r.arg);
     if (!ask) return nav(returnTo);
+    // The prompt screen answers permissions. A question is walked in the queue
+    // hero — it can hold several questions and a review step, and that walk
+    // lives in one place rather than two.
+    if (ask.kind === 'question') {
+      store.update({ queueIndex: indexOfAsk(r.arg) });
+      return nav('#/queue');
+    }
     setQueueContext(indexOfAsk(r.arg), state.asks.length);
     html = renderQueue(state) + renderAsk(state, ask, askChoice);
   } else {
@@ -137,9 +147,9 @@ function indexOfAsk(id) {
 
 window.addEventListener('hashchange', function () {
   askChoice = 0;
-  // leaving the queue closes any open option list
+  // leaving the queue abandons a half-walked answer — nothing was sent
   if (route().name !== 'queue' && store.get().queueAnswering) {
-    store.update({ queueAnswering: false, queueChoice: 0 });
+    store.update(store.closedAnswer());
   }
   render();
 });
@@ -202,8 +212,9 @@ function toast(text) {
 
 // ---- input ----------------------------------------------------------------
 
-function askOptionCount(ask) {
-  return ask.kind === 'question' ? (ask.options || []).length : 3;
+// The prompt screen is permissions only now — allow, deny, skip.
+function askOptionCount() {
+  return 3;
 }
 
 onAction('dial', function (dir) {
@@ -212,16 +223,18 @@ onAction('dial', function (dir) {
   if (r.name === 'ask') {
     var ask = store.getAsk(r.arg);
     if (!ask) return;
-    var max = askOptionCount(ask) - 1;
+    var max = askOptionCount() - 1;
     askChoice = Math.max(0, Math.min(max, askChoice + dir));
     render();
   } else if (r.name === 'queue') {
     var n = state.asks.length;
     if (!n) return;
     if (state.queueAnswering) {
-      // the option list is open: the dial moves within it, not the queue
+      // A step of the walk is open: the dial moves within its rows, not the
+      // queue. The row count comes from the same model the screen drew from,
+      // so the cursor can never run past what is on screen.
       var hero = state.asks[Math.min(state.queueIndex, n - 1)];
-      var omax = ((hero && hero.options) || []).length - 1;
+      var omax = rowCount(hero, state) - 1;
       store.update({ queueChoice: Math.max(0, Math.min(omax, state.queueChoice + dir)) });
     } else {
       store.update({ queueIndex: Math.max(0, Math.min(n - 1, state.queueIndex + dir)) });
@@ -253,10 +266,13 @@ onAction('select', function () {
     // option list inside the hero — first press opens, second answers.
     var a = state.asks[Math.min(state.queueIndex, state.asks.length - 1)];
     if (!a) return;
-    if (a.expired) openAsk(a.id);
-    else if (a.kind === 'permission') allowHero(a);
-    else if (!state.queueAnswering) store.update({ queueAnswering: true, queueChoice: 0 });
-    else answerFromQueue(a, state.queueChoice);
+    if (a.kind === 'permission') {
+      if (a.expired) openAsk(a.id);
+      else allowHero(a);
+    }
+    else if (!state.queueAnswering) openAnswering(a);
+    else if (state.queueReview) pressReview(a, state.queueChoice);
+    else pressOption(a, state.queueChoice);
   } else if (r.name === 'list') {
     var s = state.sessions[state.selectedIndex];
     if (s) openSession(s.id);
@@ -287,10 +303,13 @@ onAction('back', function () {
   if (restoreUndo()) return;
   if (r.name === 'ask') skipAsk(r.arg);
   else if (r.name === 'session') nav('#/list');
-  // Back closes the open option list first and returns to queue browsing;
-  // a second back leaves for sessions.
+  // Back walks the open ask backwards — review to the last question, question
+  // to the one before it, answers intact. From the first question it closes
+  // the list and returns to queue browsing; a second back leaves for sessions.
   else if (r.name === 'queue' && store.get().queueAnswering) {
-    store.update({ queueAnswering: false, queueChoice: 0 });
+    var st = store.get();
+    var open = st.asks[Math.min(st.queueIndex, st.asks.length - 1)];
+    if (!backStep(open)) store.update(store.closedAnswer());
   }
   else if (r.name === 'queue' || r.name === 'usage') nav('#/list');
   else if (r.name === 'bt') {
@@ -318,6 +337,15 @@ onAction('deny', function () {
     var state = store.get();
     var hero = state.asks[Math.min(state.queueIndex, state.asks.length - 1)];
     if (!hero) return;
+    // On a multiSelect question the dial press toggles, so nothing under the
+    // cursor ever moves you on — the DONE row does, and hunting for it is how
+    // the walk felt stuck. Preset 4 is the device's one context action and is
+    // otherwise idle during a question, so here it means "done picking".
+    if (state.queueAnswering && !state.queueReview && hero.kind === 'question') {
+      var q = currentQuestion(hero, state);
+      if (q && q.multiSelect) return pressOption(hero, q.options.length);
+      return;
+    }
     // An expired ask was answered in the terminal; deny is how the dead slot
     // is dismissed without pretending an answer went anywhere.
     if (hero.expired) {
@@ -436,14 +464,16 @@ onAction('tap', function (t) {
   else if (t.action === 'queue-deny' && hero) answerFromQueue(hero, 1);
   // a question opens its option list inside the hero, not the prompt screen
   else if (t.action === 'queue-answer' && hero) {
-    if (hero.kind === 'question' && !hero.expired) {
-      store.update({ queueAnswering: true, queueChoice: 0 });
-    } else openAsk(hero.id);
+    if (hero.kind === 'question') openAnswering(hero);
+    else openAsk(hero.id);
   }
-  else if (t.action === 'queue-choice' && hero) answerFromQueue(hero, Number(t.id));
+  else if (t.action === 'queue-choice' && hero) pressOption(hero, Number(t.id));
+  else if (t.action === 'queue-review' && hero) pressReview(hero, Number(t.id));
   // stack rows promote to hero rather than opening the prompt
   else if (t.action === 'queue-promote' && t.id) {
-    store.update({ queueIndex: indexOfAsk(t.id), queueAnswering: false, queueChoice: 0 });
+    var promoted = store.closedAnswer();
+    promoted.queueIndex = indexOfAsk(t.id);
+    store.update(promoted);
   }
   else if (t.action === 'mascot-toggle') toggleMascot();
   else if (t.action === 'bt-toggle') toggleDiscoverable();
@@ -479,11 +509,14 @@ function openAsk(id) {
 // out, the card is already off the local list, so a lookup by id would fail.
 function sendAnswer(ask, choice) {
   if (ask.kind === 'question') {
-    var option = (ask.options || [])[choice];
-    if (!option) return;
-    ws.request('claude.question.answer', { id: ask.id, optionIndex: choice })
+    // choice is number[][] — one entry per question of the ask, each the option
+    // indices picked for it. The daemon turns the whole set into one keystroke
+    // sequence, ending with the Return that presses "Submit answers".
+    var answers = choice;
+    if (!answers || !answers.length) return;
+    ws.request('claude.question.answer', { id: ask.id, answers: answers })
       .then(function (res) {
-        toast(questionToast(res, choice));
+        toast(questionToast(ask, res, answers));
         // The daemon has no such ask — answered elsewhere, or restarted out
         // from under this card. Either way it is not ours to press again.
         // Only tidy up if the card is still showing (prompt-screen path).
@@ -508,13 +541,12 @@ function sendAnswer(ask, choice) {
 function answerAsk(id, choice) {
   var ask = store.getAsk(id);
   if (!ask) return;
+  // Questions are walked in the queue hero; the render redirects them there,
+  // so this screen only ever decides permissions.
+  if (ask.kind === 'question') return nav('#/queue');
   // An expired permission is unrecoverable — the hook already answered "ask"
-  // and closed, so a decision now has nowhere to go. An expired *question* is
-  // the opposite: it timed out here but is still up in the terminal, and the
-  // daemon can still raise that window. So only permissions are dismissed.
-  if (ask.expired && ask.kind !== 'question') return skipAsk(id);
-
-  if (ask.kind === 'question') return sendAnswer(ask, choice);
+  // and closed, so a decision now has nowhere to go.
+  if (ask.expired) return skipAsk(id);
 
   if (choice === 2) return skipAsk(id);
   if (choice === 0 && isDestructive(ask)) {
@@ -538,6 +570,29 @@ function allowHero(hero) {
   answerFromQueue(hero, 0);
 }
 
+// ---- walking a question ask -------------------------------------------------
+//
+// A question ask is one terminal dialog and may hold several questions. They
+// are walked here, on the device, and nothing goes to the Mac until SUBMIT —
+// which is what makes every answer editable right up to the last press, and
+// what lets the dialog's own "Submit answers" step be pressed at all.
+
+// The transitions themselves are pure and live in answering.js; this applies
+// their result — the fields to store, and the answers to send once the walk is
+// over.
+function applyStep(ask, step) {
+  if (!step) return false;
+  if (step.fields) store.update(step.fields);
+  if (step.incomplete) toast('ANSWER THIS ONE FIRST');
+  if (step.submit) answerFromQueue(ask, step.submit);
+  return true;
+}
+
+function openAnswering(ask) { applyStep(ask, startWalk(ask)); }
+function pressOption(ask, row) { applyStep(ask, pressOptionAt(ask, store.get(), row)); }
+function pressReview(ask, row) { applyStep(ask, pressReviewAt(ask, store.get(), row)); }
+function backStep(ask) { return applyStep(ask, backStepAt(ask, store.get())); }
+
 // Answering from the queue must leave you on the queue with the next ask
 // promoted into the hero — not fling you into the next item's prompt screen.
 // returnTo is what nextAskOrBack() checks to suppress that jump.
@@ -548,18 +603,19 @@ function allowHero(hero) {
 // decision actually go to the daemon.
 var undoTimer = null;
 
+// choice is the whole decision: number[][] for a question (every question of
+// the ask), 0/1 for a permission. It is held intact so undo restores the whole
+// set, not a half-walked one.
 function answerFromQueue(ask, choice) {
   returnTo = '#/queue';
   flushUndo();   // at most one answer in flight; an older one goes out now
   var index = indexOfAsk(ask.id);
   store.resolveAsk(ask.id);
   undoTimer = setTimeout(flushUndo, UNDO_MS);
-  store.update({
-    undo: { ask: ask, index: index, choice: choice, expires: Date.now() + UNDO_MS },
-    armed: null,
-    queueAnswering: false,
-    queueChoice: 0,
-  });
+  var fields = store.closedAnswer();
+  fields.undo = { ask: ask, index: index, choice: choice, expires: Date.now() + UNDO_MS };
+  fields.armed = null;
+  store.update(fields);
   var verb = ask.kind === 'question' ? 'ANSWERED' : choice === 0 ? 'ALLOW' : 'DENY';
   toast(verb + ' · BACK TO UNDO');
 }
@@ -592,7 +648,11 @@ function restoreUndo() {
   var asks = store.get().asks.slice();
   var at = Math.min(u.index, asks.length);
   asks.splice(at, 0, u.ask);
-  store.update({ asks: asks, undo: null, queueIndex: at, queueAnswering: false, queueChoice: 0 });
+  var fields = store.closedAnswer();
+  fields.asks = asks;
+  fields.undo = null;
+  fields.queueIndex = at;
+  store.update(fields);
   toast('RESTORED');
   nav('#/queue');
   return true;
@@ -600,10 +660,18 @@ function restoreUndo() {
 
 // A question can only be answered by typing into its terminal, so say exactly
 // how far we got: typed it, focused the window for you, or neither and why.
-function questionToast(res, choice) {
+function questionToast(ask, res, answers) {
   if (res.viaKeyboard) return 'ANSWERED ON MAC';
   var why = String(res.reason || '');
-  if (res.focused) return 'FOCUSED — PRESS ' + (choice + 1) + ' ON MAC';
+  if (res.focused) {
+    // Naming the key only helps when there is exactly one to press. A group,
+    // or a multiSelect, is a sequence — telling someone to press "1" for it
+    // would be telling them to answer it wrong.
+    var q = questionsOf(ask);
+    var single = q.length === 1 && !q[0].multiSelect;
+    return single ? 'FOCUSED — PRESS ' + (answers[0][0] + 1) + ' ON MAC'
+      : 'FOCUSED — ANSWER ON MAC';
+  }
   // The card outlived the daemon's copy of the ask — answered on the Mac, or
   // the daemon restarted under it. Not a failure to answer, and not something
   // pressing again fixes: the terminal owns it now.
@@ -689,6 +757,11 @@ ws.on('claude.question.request', function (q) {
     kind: 'question',
     id: q.id,
     sessionId: q.sessionId,
+    // One ask is one terminal dialog; questions holds every question in it.
+    // The top-level fields mirror questions[0] and are what the card's summary
+    // line reads — questionsOf() rebuilds the list from them if a daemon that
+    // predates grouping is on the other end.
+    questions: q.questions || null,
     header: q.header,
     question: q.question,
     intent: q.intent || '',

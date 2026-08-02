@@ -102,16 +102,38 @@ function primaryPoint(e) {
   return e;
 }
 
+var captured = null;   // pointerId held by documentElement, or null
+
+// Each tick re-renders the screen, which deletes the element the finger came
+// down on. Chrome's implicit capture lives on that element, so without moving
+// the capture to a node that survives, the first tick ends the gesture with a
+// pointercancel and the drag dies after one step.
+//
+// This is claimed at the moment the gesture BECOMES a drag, never on the way
+// down. A captured pointer retargets the browser's synthesised click to the
+// capturing element, so capturing every press made every click arrive at
+// <html> with no [data-action] above it — and every tap on the device did
+// nothing at all. A tap never passes the slop, so it never captures, and its
+// click lands on the row the finger is actually on.
+function capture(e) {
+  if (captured !== null || e.pointerId === undefined) return;
+  if (!document.documentElement.setPointerCapture) return;
+  try {
+    document.documentElement.setPointerCapture(e.pointerId);
+    captured = e.pointerId;
+  } catch (err) {}
+}
+
+function release() {
+  if (captured === null) return;
+  try { document.documentElement.releasePointerCapture(captured); } catch (err) {}
+  captured = null;
+}
+
 function onDown(e) {
   var p = primaryPoint(e);
   if (!p) return drag.cancel();
-  // Each tick re-renders the screen, which deletes the element the finger came
-  // down on. Chrome's implicit capture lives on that element, so without moving
-  // the capture to a node that survives, the first tick ends the gesture with a
-  // pointercancel and the drag dies after one step.
-  if (e.pointerId !== undefined && document.documentElement.setPointerCapture) {
-    try { document.documentElement.setPointerCapture(e.pointerId); } catch (err) {}
-  }
+  release();
   drag.start(p.clientX, p.clientY, Date.now());
 }
 
@@ -120,16 +142,19 @@ function onMove(e) {
   if (!p) return;
   // Once the drag owns the finger, stop the browser doing anything else with
   // it — text selection, rubber-banding, or a synthesised scroll.
-  if (drag.move(p.clientX, p.clientY, Date.now()) && e.cancelable) e.preventDefault();
+  if (drag.move(p.clientX, p.clientY, Date.now())) {
+    capture(e);
+    if (e.cancelable) e.preventDefault();
+  }
 }
 
-function onUp() { drag.end(Date.now()); }
+function onUp() { release(); drag.end(Date.now()); }
 
 if (window.PointerEvent) {
   document.addEventListener('pointerdown', onDown, { passive: false });
   document.addEventListener('pointermove', onMove, { passive: false });
   document.addEventListener('pointerup', onUp);
-  document.addEventListener('pointercancel', function () { drag.cancel(); });
+  document.addEventListener('pointercancel', function () { release(); drag.cancel(); });
 } else {
   // Fallback for a browser without pointer events. Touch events can't be
   // recaptured the way the branch above does, so a re-render under the finger
