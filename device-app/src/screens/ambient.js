@@ -21,7 +21,10 @@ export function renderAmbient(state) {
     ? '<div class="ahead blocked">' + blocked + (blocked === 1 ? ' NEEDS YOU' : ' NEED YOU') + '</div>'
     : '<div class="ahead">NOTHING BLOCKED</div>';
 
-  return '<div class="screen ambient">' +
+  // The whole screen is the mascot's switch: he wanders everywhere, so no
+  // fixed hotspot could reliably be "on him", and the clock has no other tap
+  // target to collide with.
+  return '<div class="screen ambient" data-action="mascot-toggle">' +
     '<div class="bigclock">' + fmtClock() + '</div>' +
     head +
     '<div class="caption">' + working + ' WORKING · ' + resting + ' RESTING</div>' +
