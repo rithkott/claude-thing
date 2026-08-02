@@ -145,8 +145,12 @@ export function pressOptionAt(ask, state, row) {
 export function pressReviewAt(ask, state, row) {
   var qs = questionsOf(ask);
   if (row < qs.length) return openQuestionAt(state, row, true);
+  // A single-select question with no pick is genuinely unfinished. A
+  // multiSelect with none picked is an ANSWER — "none of these" — and turning
+  // one into the other is how the walk used to trap you: toggle an option on
+  // and back off, and SUBMIT bounced you here forever with no way out.
   for (var i = 0; i < qs.length; i++) {
-    if (!picksAt(state, i).length) {
+    if (!qs[i].multiSelect && !picksAt(state, i).length) {
       var go = openQuestionAt(state, i, true);
       go.incomplete = true;
       return go;

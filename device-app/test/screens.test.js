@@ -576,12 +576,16 @@ test('the review step lists every answer and offers SUBMIT', () => {
   assert.match(html, /sends all 3 answers/);
 });
 
-test('an unanswered question shows as blank in review rather than guessing one', () => {
+// Two different things, and the review step must not conflate them: a
+// multiSelect with nothing ticked is an answer, an untouched single-select is
+// a gap.
+test('review tells "none" apart from not-answered-yet', () => {
   const html = renderQueue(baseState({
     asks: [groupAsk()], queueAnswering: true, queueReview: true,
-    queueAnswers: [[0], [], [1]],
+    queueAnswers: [[], [], [1]],
   }));
-  assert.match(html, /<span class="qdesc">—<\/span>/);
+  assert.match(html, /AUTH<\/span><span class="qdesc">—<\/span>/, 'single-select: a gap');
+  assert.match(html, /ENVS<\/span><span class="qdesc">none<\/span>/, 'multiSelect: an answer');
 });
 
 test('a lone question renders exactly as it did — no part count, no review', () => {

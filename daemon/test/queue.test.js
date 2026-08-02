@@ -209,6 +209,28 @@ test('answering a group types every digit and the Submit Return', async () => {
   assert.equal(queue.size(), 0);
 });
 
+// Nothing ticked is an answer, and the sequence for it is the commit alone.
+// Refusing it stranded the device with a set it could never submit.
+test('a multiSelect answered with nothing ticked is typed as a bare Return', async () => {
+  const { queue, calls } = setup();
+  queue.onQuestion(MULTI_HOOK);
+  const [ask] = queue.list();
+
+  const res = await queue.answerQuestion(ask.id, [[1], [], [0]]);
+  assert.equal(res.accepted, true);
+  assert.deepEqual(calls.typed, ['2', 'return', '1', 'return']);
+  assert.equal(res.option, 'API keys · none · All at once');
+});
+
+test('the sequence is the final answer, never a replay of the toggling', () => {
+  // Whatever the user did to arrive at {Dev, Production}, the terminal sees
+  // two digits and a commit — a stray digit would flip a settled option.
+  assert.deepEqual(
+    keySequence([{ multiSelect: true }], [[0, 2]]),
+    ['1', '3', 'return'],
+  );
+});
+
 test('keySequence: a lone question gets no trailing Return', () => {
   assert.deepEqual(keySequence([{ multiSelect: false }], [[2]]), ['3']);
   assert.deepEqual(
@@ -228,7 +250,7 @@ test('an answer set that does not match the questions is refused', async () => {
     [[[0], [1], [0], [0]], 'too many answers'],
     [[[0], [1], [9]], 'option out of range'],
     [[[0, 1], [1], [0]], 'two picks on a single-select question'],
-    [[[0], [], [0]], 'no pick at all'],
+    [[[0], [1], []], 'no pick on a single-select question'],
     [[[0], [1, 1], [0]], 'the same option twice would toggle it back off'],
   ];
   for (const [answers, why] of cases) {

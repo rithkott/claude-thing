@@ -32,10 +32,17 @@ const MAX_EXPIRED = 32;
 //
 //   • single-select question — the option's digit both picks and advances.
 //   • multiSelect question   — each digit TOGGLES its option; Return commits
-//                              the toggles and advances.
+//                              the toggles and advances. No picks at all is a
+//                              valid answer: Return alone, no digits.
 //   • more than one question — the dialog ends on a "Submit answers" step that
 //                              Return confirms. A one-question dialog has no
 //                              such step and must not get a trailing Return.
+//
+// The sequence is the FINAL answer, never a replay of how the user got there.
+// The device's own toggling — on, off, on again — has no business reaching the
+// terminal: each stray digit would flip an option the user had already settled,
+// and the sequence has to land the dialog in the state shown on the review
+// step and then finish it.
 export function keySequence(questions, answers) {
   const keys = [];
   questions.forEach((q, i) => {
@@ -56,8 +63,10 @@ function normalizeAnswers(raw, questions) {
   for (let i = 0; i < list.length; i++) {
     const picks = Array.isArray(list[i]) ? list[i] : [list[i]];
     const q = questions[i];
+    // A single-select question is exactly one option. A multiSelect may be
+    // none — "none of these" is an answer, and refusing it left the device
+    // with a set it could never submit.
     if (!q.multiSelect && picks.length !== 1) return null;
-    if (!picks.length) return null;
     for (const p of picks) {
       if (!Number.isInteger(p) || p < 0 || p >= q.options.length) return null;
     }
@@ -236,7 +245,7 @@ export function createQueue({ emit, store, focus }) {
     const answers = normalizeAnswers(rawAnswers, ask.questions);
     if (!answers) return { accepted: false, reason: 'bad answer shape' };
     const chosen = ask.questions
-      .map((q, i) => answers[i].map((p) => q.options[p].label).join(' + '))
+      .map((q, i) => answers[i].map((p) => q.options[p].label).join(' + ') || 'none')
       .join(' · ');
 
     // Focus first so the keystrokes — or the user's own — land in the right

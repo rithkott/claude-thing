@@ -196,7 +196,10 @@ function heroReview(a, state) {
   var choice = state.queueChoice;
   var html = '<div class="qopts qreview">';
   for (var i = 0; i < qs.length; i++) {
-    var chosen = answeredLabels(a, state, i) || '—';
+    // "none" and "—" are different things: one is a multiSelect answered with
+    // nothing ticked, the other is a question not yet reached.
+    var chosen = answeredLabels(a, state, i) ||
+      (qs[i].multiSelect ? 'none' : '—');
     html += '<div class="qopt' + (i === choice ? ' selected' : '') +
       '" data-action="queue-review" data-id="' + i + '">' +
       '<span class="qnum">' + (i + 1) + '</span>' +

@@ -109,13 +109,34 @@ test('SUBMIT sends every answer as one set', () => {
   assert.deepEqual(step.submit, [[1], [0, 2], [1]]);
 });
 
-test('SUBMIT with a question still unanswered goes there instead of sending', () => {
+test('SUBMIT with a single-select still unanswered goes there instead of sending', () => {
   const ask = group();
-  const s = walking(ask, { queueReview: true, queueAnswers: [[1], [], [1]] });
+  const s = walking(ask, { queueReview: true, queueAnswers: [[], [0], [1]] });
   const step = pressReviewAt(ask, s, 3);
   assert.equal(step.submit, undefined, 'the daemon would only refuse the set');
-  assert.equal(step.fields.queueQIndex, 1, 'and it opens the one that is missing');
+  assert.equal(step.fields.queueQIndex, 0, 'and it opens the one that is missing');
   assert.equal(step.incomplete, true, 'the caller says so out loud');
+});
+
+// The trap this used to be: toggle an option on, toggle it back off, and the
+// question reads as unanswered — so SUBMIT bounced you into it forever with no
+// press that could get you out. Nothing ticked IS the answer.
+test('a multiSelect with nothing ticked submits — it is an answer, not a gap', () => {
+  const ask = group();
+  let s = walking(ask, { queueQIndex: 1, queueAnswers: [[0], [], [1]] });
+
+  s = { ...s, ...pressOptionAt(ask, s, 0).fields };      // Dev on
+  s = { ...s, ...pressOptionAt(ask, s, 0).fields };      // Dev off again
+  assert.deepEqual(s.queueAnswers[1], [], 'back to nothing ticked');
+
+  s = { ...s, ...pressOptionAt(ask, s, 3).fields };      // DONE still moves on
+  assert.equal(s.queueQIndex, 2);
+  s = { ...s, ...pressOptionAt(ask, s, 1).fields };      // last question -> review
+  assert.equal(s.queueReview, true);
+
+  const step = pressReviewAt(ask, s, 3);
+  assert.deepEqual(step.submit, [[0], [], [1]], 'and SUBMIT sends it');
+  assert.equal(step.incomplete, undefined);
 });
 
 // The whole reason answers are held on the device rather than typed as they
