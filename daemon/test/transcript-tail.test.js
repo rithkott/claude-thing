@@ -51,6 +51,44 @@ test('an assistant record\'s effort lands on the session, later ones replace it'
   tail.stop();
 });
 
+test('an interrupt marker reports the interrupt with the line\'s own timestamp', async () => {
+  const store = createStore();
+  const interrupts = [];
+  const transcriptPath = tmpTranscript([
+    { type: 'user', timestamp: '2026-08-01T10:00:00.000Z',
+      message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] } },
+  ]);
+  const tail = startTranscriptTail({
+    store, sessionId: 'a', transcriptPath, onInterrupt: (ts) => interrupts.push(ts),
+  });
+  await settle();
+  assert.equal(interrupts.length, 1);
+  assert.equal(interrupts[0], Date.parse('2026-08-01T10:00:00.000Z'), 'ts from the line, not the read time');
+
+  fs.appendFileSync(transcriptPath, JSON.stringify({
+    type: 'user', timestamp: '2026-08-01T10:05:00.000Z',
+    message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user for tool use]' }] },
+  }) + '\n');
+  await settle();
+  assert.equal(interrupts.length, 2, 'the tool-use flavour of the marker counts too');
+  tail.stop();
+});
+
+test('ordinary messages never fire the interrupt callback', async () => {
+  const store = createStore();
+  const interrupts = [];
+  const transcriptPath = tmpTranscript([
+    { type: 'assistant', message: { content: [{ type: 'text', text: 'Reading queue.js now' }] } },
+    { type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'please continue' }] } },
+  ]);
+  const tail = startTranscriptTail({
+    store, sessionId: 'a', transcriptPath, onInterrupt: (ts) => interrupts.push(ts),
+  });
+  await settle();
+  assert.equal(interrupts.length, 0);
+  tail.stop();
+});
+
 test('a mode record is not mistaken for a message and harvested for usage', async () => {
   const store = createStore();
   const transcriptPath = tmpTranscript([

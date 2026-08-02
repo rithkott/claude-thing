@@ -135,6 +135,27 @@ test('the hook giving up (socket close) clears our state too', () => {
   assert.ok(events.some((e) => e.topic === 'claude.permission.resolved'));
 });
 
+test('an Esc interrupt releases a held permission with "ask" and clears the tile', () => {
+  const { bridge, store, events } = setup();
+  const res = fakeRes();
+  bridge.onHookRequest(HOOK, res);
+  assert.equal(bridge.pendingCount(), 1);
+
+  bridge.cancelSession('sess-1', Date.now() + 1);
+  assert.equal(bridge.pendingCount(), 0);
+  assert.equal(decisionOf(res), 'ask', 'never decides for a turn that is already dead');
+  assert.equal(store.get('sess-1').pendingPermission, false);
+  const resolved = events.find((e) => e.topic === 'claude.permission.resolved');
+  assert.equal(resolved.data.resolution, 'interrupted');
+});
+
+test('a replayed interrupt marker older than the permission leaves it held', () => {
+  const { bridge } = setup();
+  bridge.onHookRequest(HOOK, fakeRes());
+  bridge.cancelSession('sess-1', Date.now() - 60_000);
+  assert.equal(bridge.pendingCount(), 1);
+});
+
 test('ExitPlanMode is never held — hook gets "ask" back, plan goes to the queue', () => {
   const planCalls = [];
   const { bridge, events } = setup({ onPlanApproval: (p) => planCalls.push(p) });

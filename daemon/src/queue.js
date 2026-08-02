@@ -115,6 +115,24 @@ export function createQueue({ emit, store, focus }) {
     }
   }
 
+  // Esc kills the terminal dialog without firing any hook — no PostToolUse, no
+  // Stop — so the transcript tail's interrupt marker lands here. Unlike a
+  // timeout, an interrupted ask is dead everywhere: the dialog is gone from the
+  // terminal, so it leaves the expired map too — nothing to raise a window for.
+  // Only asks older than the marker die: the tail replays the whole transcript
+  // on catch-up, and a stale marker must not kill a fresh ask.
+  function onInterrupted(sessionId, ts) {
+    for (const map of [questions, expired]) {
+      for (const [id, ask] of map) {
+        if (ask.sessionId === sessionId && ask.createdTs <= ts) {
+          map.delete(id);
+          emit('claude.question.resolved', { id, resolution: 'interrupted' });
+          log('QQ', `question interrupted: ${ask.header}`);
+        }
+      }
+    }
+  }
+
   // A timed-out question leaves the queue but stays on the device on purpose —
   // it is still up in the terminal, and the card is how you get back to it. So
   // keep the ask itself around: pressing an expired card must still raise that
@@ -181,5 +199,5 @@ export function createQueue({ emit, store, focus }) {
     return [...questions.values()].sort((a, b) => a.createdTs - b.createdTs);
   }
 
-  return { onQuestion, onPlanApproval, onQuestionAnswered, answerQuestion, list, size: () => questions.size };
+  return { onQuestion, onPlanApproval, onQuestionAnswered, onInterrupted, answerQuestion, list, size: () => questions.size };
 }

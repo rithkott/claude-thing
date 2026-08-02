@@ -123,6 +123,17 @@ export function createPermissionBridge({ emit, store, queue }) {
     return finish(requestId, decision, decision);
   }
 
+  // Esc during a held permission usually closes the hook's socket and the
+  // res 'close' handler cleans up — but not always by the time the transcript
+  // marker lands. Releasing with "ask" is safe either way: the turn is dead,
+  // so nobody is left to show a prompt. The createdTs guard keeps replayed
+  // markers from touching a permission raised after the interrupt.
+  function cancelSession(sessionId, ts) {
+    for (const [id, p] of pending) {
+      if (p.sessionId === sessionId && p.createdTs <= ts) finish(id, 'interrupted', 'ask');
+    }
+  }
+
   // Pending permissions as queue entries, for clients that connect late.
   function list() {
     return [...pending.entries()].map(([id, p]) => ({
@@ -138,5 +149,5 @@ export function createPermissionBridge({ emit, store, queue }) {
     })).sort((a, b) => a.createdTs - b.createdTs);
   }
 
-  return { onHookRequest, answer, list, pendingCount: () => pending.size };
+  return { onHookRequest, answer, cancelSession, list, pendingCount: () => pending.size };
 }
