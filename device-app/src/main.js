@@ -50,7 +50,7 @@ function render() {
 
   if (r.name === 'ambient') {
     html = renderAmbient(state);
-    mascot.show();
+    if (state.mascotOn) mascot.show();
   } else if (r.name === 'session' && r.arg) {
     html = renderDetail(state, r.arg);
   } else if (r.name === 'queue') {
@@ -68,7 +68,7 @@ function render() {
     html = renderList(state);
     isList = true;
   }
-  if (r.name !== 'ambient') mascot.hide();
+  if (r.name !== 'ambient' || !state.mascotOn) mascot.hide();
   // pairing is a device-wide event, not a screen: show it wherever you are
   if (state.btPairing) html += renderBtPairing(state.btPairing);
 
@@ -194,6 +194,27 @@ setInterval(function () {
   if (st.armed && nowMs > st.armed.expires) store.update({ armed: null });
   if (route().name === 'ask') render();
 }, 1000);
+
+// ---- mascot toggle ---------------------------------------------------------
+// The sprite is decoration, and some people want a clock to be a clock. A tap
+// anywhere on the ambient screen flips him on or off, and the choice survives
+// a reboot. localStorage failures (private mode, a full disk) cost only the
+// persistence, never the toggle.
+
+var MASCOT_KEY = 'mascotOff';
+try {
+  if (window.localStorage.getItem(MASCOT_KEY)) store.update({ mascotOn: false });
+} catch (e) {}
+
+function toggleMascot() {
+  var on = !store.get().mascotOn;
+  store.update({ mascotOn: on });
+  try {
+    if (on) window.localStorage.removeItem(MASCOT_KEY);
+    else window.localStorage.setItem(MASCOT_KEY, '1');
+  } catch (e) {}
+  toast(on ? 'SPRITE ON' : 'SPRITE OFF');
+}
 
 // ---- toast ---------------------------------------------------------------
 
@@ -450,6 +471,7 @@ onAction('tap', function (t) {
   else if (t.action === 'queue-promote' && t.id) {
     store.update({ queueIndex: indexOfAsk(t.id), queueAnswering: false, queueChoice: 0 });
   }
+  else if (t.action === 'mascot-toggle') toggleMascot();
   else if (t.action === 'bt-toggle') toggleDiscoverable();
   else if (t.action === 'bt-device' && t.id) {
     var idx = btDeviceIndex(t.id);

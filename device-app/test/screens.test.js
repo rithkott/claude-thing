@@ -288,6 +288,9 @@ test('ambient shows a lamp per session and reads as a desk clock', () => {
   }));
   assert.match(calm, /class="ahead">NOTHING BLOCKED/);
   assert.match(calm, /press dial for sessions/);
+
+  // the whole screen is the sprite's switch — a tap anywhere toggles him
+  assert.match(html, /data-action="mascot-toggle"/);
 });
 
 test('detail shows tokens, cache and state, and waits politely before loading', () => {

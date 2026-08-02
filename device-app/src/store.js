@@ -27,6 +27,7 @@ var state = {
   btMenuIndex: 0,       // cursor within that submenu
   btBusy: null,         // address with an in-flight connect/disconnect
   btPairing: null,      // {address, name, pin} while a phone is pairing
+  mascotOn: true,       // clock-screen sprite; tap the clock to toggle
 };
 
 var subs = [];
