@@ -14,11 +14,13 @@ import { isDestructive } from './screens/helpers.js';
 import {
   questionsOf, currentQuestion, rowCount, startWalk, pressOptionAt, pressReviewAt, backStepAt,
 } from './answering.js';
+import { inflight } from './inflight.js';
 
 var app = document.getElementById('app');
 var banner = document.getElementById('banner');
 var toastEl = document.getElementById('toast');
 var edgeEl = document.getElementById('edge');
+var pendingEl = document.getElementById('pending');
 
 // The device arms a destructive allow for ARM_MS, and holds every queue answer
 // UNDO_MS before it is actually sent so back can take it back.
@@ -89,6 +91,7 @@ function render() {
     app.innerHTML = html;
     if (isList) marquee();
   }
+  paintPending(state);
   banner.className = state.daemonConnected ? 'banner' : 'banner show';
   // A blocked session is visible from every screen: the panel edge pulses warn
   // whenever anything waits. Suppressed on the queue and the prompt, where you
@@ -198,6 +201,33 @@ function toggleMascot() {
     else window.localStorage.setItem(MASCOT_KEY, '1');
   } catch (e) {}
   toast(on ? 'SPRITE ON' : 'SPRITE OFF');
+}
+
+// ---- the answer in flight --------------------------------------------------
+//
+// From the press to the keystrokes landing is seconds — the undo window, then
+// the daemon focusing the terminal and typing the sequence out. The indicator
+// stands for that whole wait, so a screen that has already dropped the card
+// still says the answer is on its way rather than looking finished.
+//
+// Written only when the phase actually changes: the drain ring is a CSS
+// animation, and rewriting the class on every daemon event would restart it.
+
+var lastPending = '';
+function paintPending(state) {
+  var v = inflight(state, UNDO_MS);
+  var key = v ? v.phase + '|' + v.label : '';
+  if (key === lastPending) return;
+  lastPending = key;
+  if (!v) {
+    pendingEl.className = 'pending';
+    return;
+  }
+  pendingEl.querySelector('.pendlabel').textContent = v.label;
+  // The undo ring is a countdown, so it runs for exactly as long as the window
+  // it is counting down — one number, kept in one place.
+  if (v.ms) pendingEl.querySelector('.pendarc').style.animationDuration = v.ms + 'ms';
+  pendingEl.className = 'pending show ' + v.phase;
 }
 
 // ---- toast ---------------------------------------------------------------
@@ -514,8 +544,10 @@ function sendAnswer(ask, choice) {
     // sequence, ending with the Return that presses "Submit answers".
     var answers = choice;
     if (!answers || !answers.length) return;
+    markSending(ask);
     ws.request('claude.question.answer', { id: ask.id, answers: answers })
       .then(function (res) {
+        clearSending(ask.id);
         toast(questionToast(ask, res, answers));
         // The daemon has no such ask — answered elsewhere, or restarted out
         // from under this card. Either way it is not ours to press again.
@@ -525,15 +557,29 @@ function sendAnswer(ask, choice) {
           nextAskOrBack();
         }
       })
-      .catch(function () { toast('SEND FAILED'); });
+      .catch(function () { clearSending(ask.id); toast('SEND FAILED'); });
     return;
   }
   var decision = choice === 0 ? 'allow' : 'deny';
+  markSending(ask);
   ws.request('claude.permission.answer', { requestId: ask.id, decision: decision })
     .then(function (res) {
+      clearSending(ask.id);
       if (!res.accepted) toast('ALREADY ANSWERED');
     })
-    .catch(function () { toast('SEND FAILED'); });
+    .catch(function () { clearSending(ask.id); toast('SEND FAILED'); });
+}
+
+function markSending(ask) {
+  store.update({ sending: { id: ask.id, kind: ask.kind } });
+}
+
+// By id: an answer flushed early to make way for a newer one can land after
+// that newer one went out, and clearing blind would drop the indicator while
+// somebody's keystrokes are still being typed.
+function clearSending(id) {
+  var s = store.get().sending;
+  if (s && s.id === id) store.update({ sending: null });
 }
 
 // Prompt-screen answer: immediate send. The destructive two-press contract
@@ -616,8 +662,9 @@ function answerFromQueue(ask, choice) {
   fields.undo = { ask: ask, index: index, choice: choice, expires: Date.now() + UNDO_MS };
   fields.armed = null;
   store.update(fields);
-  var verb = ask.kind === 'question' ? 'ANSWERED' : choice === 0 ? 'ALLOW' : 'DENY';
-  toast(verb + ' · BACK TO UNDO');
+  // No toast here: the in-flight indicator says the same thing and keeps saying
+  // it for the whole wait, where a toast would have faded after 2.5s and left
+  // the last four seconds of the undo window unannounced.
 }
 
 function clearUndo() {

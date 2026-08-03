@@ -9,6 +9,16 @@
   <div id="edge" class="edge"></div>
   <div id="banner" class="banner">DAEMON OFFLINE — CHECK MAC CONNECTOR</div>
   <div id="toast" class="toast"></div>
+  <!-- The answered-but-not-yet-typed indicator. It lives outside #app because
+       every render swaps that subtree's innerHTML, which would restart its
+       animation — and a ring that restarts every daemon event is not a wait. -->
+  <div id="pending" class="pending">
+    <svg class="pendring" viewBox="0 0 24 24">
+      <circle class="pendtrack" cx="12" cy="12" r="10" />
+      <circle class="pendarc" cx="12" cy="12" r="10" />
+    </svg>
+    <span class="pendlabel"></span>
+  </div>
   <script type="module" src="/src/main.js"></script>
   <script src="./switch.js"></script>
 </body>
