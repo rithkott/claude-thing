@@ -67,7 +67,7 @@ test('a timed-out question can still be typed into when focus is exact', async (
 
   const res = await s.queue.answerQuestion(ask.id, 1);
   assert.equal(res.viaKeyboard, true);
-  assert.deepEqual(s.calls.typed, ['2']);
+  assert.deepEqual(s.calls.typed, ['down', 'return']);
   assert.equal((await s.queue.answerQuestion(ask.id, 1)).reason, 'already resolved', 'not answerable twice');
 });
 

@@ -31,9 +31,20 @@ const MAX_EXPIRED = 32;
 // it is the terminal UI's contract. Read out of the CLI itself (2.1.220), not
 // guessed:
 //
-//   • single-select question — the option's digit picks it AND advances. Its
-//     onAnswer defaults shouldAdvance to true, which bumps
-//     currentQuestionIndex, so nothing else is needed to move on.
+//   • single-select question — walk the cursor DOWN to the option and press
+//     Return. Not the digit: Claude Code draws a single-select two different
+//     ways, and the digit means opposite things in them. A plain question uses
+//     the shared list, where a digit selects and advances. A question whose
+//     options carry `preview` text gets the split-pane layout instead, where a
+//     digit only MOVES the cursor and Return is what selects — so a digit
+//     sequence typed into one of those picks nothing, and the trailing Return
+//     lands on the first question, answering it and stranding the dialog on the
+//     second. Down-then-Return is the one contract both layouts share, and the
+//     device cannot tell them apart: `preview` never crosses the wire, and the
+//     layout also depends on terminal state the daemon does not see.
+//
+//     The cursor starts on the first option of every question, so the number
+//     of Downs IS the option index.
 //
 //   • multiSelect question — each digit TOGGLES its option and the dialog
 //     stays put. Return does NOT commit: inside the list it activates the row
@@ -58,9 +69,15 @@ const MAX_EXPIRED = 32;
 export function keySequence(questions, answers) {
   const keys = [];
   questions.forEach((q, i) => {
+    if (!q.multiSelect) {
+      // Down to the option, Return to take it — which also advances.
+      for (let d = 0; d < answers[i][0]; d++) keys.push('down');
+      keys.push('return');
+      return;
+    }
+    // A multiSelect only ever draws the shared list, so its digits are safe.
     for (const pick of answers[i]) keys.push(String(pick + 1));
-    // A single-select question has already advanced itself on the digit.
-    if (q.multiSelect) keys.push('tab');
+    keys.push('tab');
   });
   if (questions.length > 1) keys.push('return');
   return keys;

@@ -52,3 +52,4 @@ A row ships to the **dev** channel as `X.Y.Z-dev` the moment its PR merges. It b
 | 1.17.1 | 2026-08-02 | fix | answer-serialization | Answers given in quick succession are typed one at a time, so keystrokes can no longer interleave into the wrong session's terminal |
 | 1.17.2 | 2026-08-02 | fix | semver-ledger | The ledger is semver end to end — every past release renumbered to match its tag, and the release process documents the bump rules |
 | 1.18.0 | 2026-08-03 | feature | dev-channel | Every merge auto-publishes an X.Y.Z-dev prerelease from CI; production is a separate promote step, so features reach dev without touching what users install |
+| 1.18.1 | 2026-08-03 | fix | preview-question-keys | A question whose options carry previews is answerable from the device again — its dialog reads digits as cursor moves, so answers are walked with Down and taken with Return |
