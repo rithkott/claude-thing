@@ -1632,6 +1632,70 @@ html, body {
 }
 .toast.show { opacity: 1; }
 
+/* ---- answer in flight ---------------------------------------------------- */
+/* The wait between pressing an answer and it reaching the terminal: the undo
+   window, then the daemon typing it. The ring is the only thing on screen that
+   says so once the card has left the queue. */
+.pending {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  display: none;
+  align-items: center;
+  padding: 10px 24px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  color: var(--text-2);
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 290;
+}
+.pending.show { display: flex; }
+.pendring {
+  width: 22px;
+  height: 22px;
+  margin-right: 12px;   /* Chrome 69: no flex gap */
+}
+.pendtrack {
+  fill: none;
+  stroke: var(--rule);
+  stroke-width: 3;
+}
+.pendarc {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  /* r=10 → circumference 62.8, so the dash maths below is in those units */
+  stroke-dasharray: 62.8;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+/* A known wait, so the ring empties over exactly it — the animation IS the
+   countdown, and JS sets only its duration (from UNDO_MS). */
+.pending.undo .pendarc {
+  stroke: var(--warn);
+  animation: drain linear forwards;
+}
+@keyframes drain {
+  from { stroke-dashoffset: 0 }
+  to   { stroke-dashoffset: 62.8 }
+}
+/* An unknown wait — focus, then a keystroke every KEY_GAP_S — so it spins. */
+.pending.sending .pendarc {
+  stroke: var(--accent);
+  stroke-dasharray: 16 47;
+  animation: pendspin 900ms linear infinite;
+}
+@keyframes pendspin {
+  from { transform: rotate(-90deg) }
+  to   { transform: rotate(270deg) }
+}
+
 /* ---- bluetooth ---------------------------------------------------------- */
 .btwrap {
   flex: 1;

@@ -32,6 +32,7 @@ var state = {
                           // answering it returns there rather than walking on
   armed: null,          // {id, expires} — destructive ask half-pressed
   undo: null,           // {ask, index, choice, expires} — answer held, undoable
+  sending: null,        // {id, kind} — answer on the wire, daemon typing it
   btDevices: [],        // [{address, name, paired, connected}]
   btDiscoverable: false,
   btIndex: 0,           // bluetooth cursor: 0 = pairing toggle, 1..n = devices
