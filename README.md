@@ -104,7 +104,7 @@ This replaces the software on the device. It's reversible — Nocturne's own
 firmware can be flashed back the same way — but it does wipe what's on there now.
 
 1. From the same [release page](https://github.com/rithkott/claude-thing/releases/latest),
-   download the firmware: **`nocturne_v4.0.7_claude_r32.zip`** (again, the
+   download the firmware: **`nocturne_v4.0.7_claude_1.17.2.zip`** (again, the
    number may be higher). It's large — around 365 MB.
 2. **Do not unzip it.** The flashing tool wants the zip as-is.
 3. Open [terbium.app](https://terbium.app) **in Chrome**.
@@ -179,6 +179,19 @@ node emulator/scripts/deploy-dev.js
 You'll need a firmware zip on hand — download one from the
 [releases page](https://github.com/rithkott/claude-thing/releases/latest) as in
 Step 4. If you use Claude Code, saying "deploy to dev" runs all of this for you.
+
+---
+
+## Release channels
+
+Every release page carries both a DMG and a firmware zip. There are two kinds:
+
+- **Production** — the newest release *without* a **Pre-release** badge, and
+  what [releases/latest](https://github.com/rithkott/claude-thing/releases/latest)
+  points at. Install this one.
+- **Dev** — tagged `X.Y.Z-dev` and marked **Pre-release**. Published
+  automatically the moment a change merges, so it has the newest features and
+  the least testing. Install it the same way if you want them early.
 
 ---
 

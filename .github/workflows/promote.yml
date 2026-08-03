@@ -1,0 +1,119 @@
+name: promote
+
+# Promotes a dev build to production. Nothing is rebuilt: the exact assets that
+# shipped as X.Y.Z-dev are re-published under X.Y.Z at the same commit, so the
+# thing tested on dev is the thing users install.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dev_tag:
+        description: dev tag to promote (blank = newest dev prerelease)
+        type: string
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: resolve the dev build
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEV_TAG_INPUT: ${{ inputs.dev_tag }}
+        run: |
+          set -euo pipefail
+          dev="$DEV_TAG_INPUT"
+          if [ -z "$dev" ]; then
+            dev="$(gh release list --limit 50 --json tagName,isPrerelease \
+                    --jq '[.[] | select(.isPrerelease and (.tagName | endswith("-dev")))] | .[0].tagName // empty')"
+          fi
+          [ -n "$dev" ] || { echo "ERROR: no dev prerelease to promote" >&2; exit 1; }
+          gh release view "$dev" >/dev/null || { echo "ERROR: no release tagged $dev" >&2; exit 1; }
+
+          case "$dev" in
+            *-dev) stable="${dev%-dev}" ;;
+            *) echo "ERROR: $dev is not a -dev tag" >&2; exit 1 ;;
+          esac
+
+          if gh release view "$stable" >/dev/null 2>&1; then
+            echo "ERROR: $stable is already released. A production version is immutable — merge the next version first." >&2
+            exit 1
+          fi
+
+          git fetch --tags --quiet
+          sha="$(git rev-parse "${dev}^{commit}")"
+
+          grep -qE "^\| *${stable//./\\.} *\|" RELEASES.md \
+            || { echo "ERROR: $stable has no row in RELEASES.md" >&2; exit 1; }
+
+          {
+            echo "dev=$dev"
+            echo "stable=$stable"
+            echo "sha=$sha"
+          } >> "$GITHUB_OUTPUT"
+          echo "promoting $dev -> $stable at $sha"
+
+      - name: fetch the dev assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEV: ${{ steps.resolve.outputs.dev }}
+          STABLE: ${{ steps.resolve.outputs.stable }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          gh release download "$DEV" --dir assets --clobber
+          # The firmware zip carries the version in its name; everything else
+          # (the DMG) is version-neutral and ships as-is.
+          for f in assets/*"$DEV"*; do
+            [ -e "$f" ] || continue
+            mv "$f" "${f//$DEV/$STABLE}"
+          done
+          ls -la assets
+
+      - name: publish the production release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEV: ${{ steps.resolve.outputs.dev }}
+          STABLE: ${{ steps.resolve.outputs.stable }}
+          SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          slug="$(node scripts/release-meta.mjs --channel prod | sed -n 's/^slug=//p')"
+
+          flags=(--target "$SHA" --title "$STABLE — $slug" --generate-notes --latest)
+          prev="$(gh release list --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // empty')"
+          if [ -n "$prev" ] && git rev-parse -q --verify "refs/tags/$prev" >/dev/null; then
+            flags+=(--notes-start-tag "$prev")
+          fi
+
+          gh release create "$STABLE" "${flags[@]}" assets/*
+
+          gh release view "$STABLE" --json body --jq .body > body.md
+          printf 'Production build, promoted from `%s` (same commit, same binaries).\n\n---\n\n' "$DEV" \
+            | cat - body.md > new-body.md
+          gh release edit "$STABLE" --notes-file new-body.md
+
+          # Leave a pointer on the dev build so it is obvious it shipped.
+          gh release view "$DEV" --json body --jq .body > dev-body.md
+          if ! grep -q "Promoted to " dev-body.md; then
+            printf 'Promoted to [`%s`](../../releases/tag/%s).\n\n' "$STABLE" "$STABLE" \
+              | cat - dev-body.md > new-dev-body.md
+            gh release edit "$DEV" --notes-file new-dev-body.md
+          fi
+
+          {
+            echo "promoted **$DEV** to **$STABLE**"
+            gh release view "$STABLE" --json url --jq .url
+          } >> "$GITHUB_STEP_SUMMARY"
