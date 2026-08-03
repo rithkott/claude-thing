@@ -54,3 +54,4 @@ A row ships to the **dev** channel as `X.Y.Z-dev` the moment its PR merges. It b
 | 1.18.0 | 2026-08-03 | feature | dev-channel | Every merge auto-publishes an X.Y.Z-dev prerelease from CI; production is a separate promote step, so features reach dev without touching what users install |
 | 1.18.1 | 2026-08-03 | fix | preview-question-keys | A question whose options carry previews is answerable from the device again — its dialog reads digits as cursor moves, so answers are walked with Down and taken with Return |
 | 1.18.2 | 2026-08-03 | fix | dmg-asset-name | The release DMG is named Nocturne-claude-<connector version>.dmg again, so it is distinguishable from a stock Nocturne download on the release page |
+| 1.18.3 | 2026-08-03 | fix | readme-debug | README gains a debug path: three ordered checks, where and how to grant the macOS Automation permissions (and why the dialog says a version number), and the prompts that keep a session answerable from the dial |

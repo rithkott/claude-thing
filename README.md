@@ -198,6 +198,35 @@ Every release page carries both a DMG and a firmware zip. There are two kinds:
 
 ## When something doesn't work
 
+### Three checks, in this order
+
+**1. Is the daemon up, and what does it see?**
+
+```sh
+curl -s http://127.0.0.1:8790/status
+```
+
+It answers with JSON: `sessions` is how many Claude Code sessions it found,
+`pendingPermissions` is what's waiting on you right now, `connector` is whether
+Nocturne is relaying, `hooks` is whether the Claude Code hooks are installed.
+No answer at all means the daemon is down:
+
+```sh
+launchctl kickstart -k gui/$(id -u)/com.claudething.daemon   # restart it
+tail -20 daemon/logs/launchd.err.log                         # find out why
+```
+
+**2. Was the session started after the install?** The hooks are written into
+`~/.claude/settings.json`, and Claude Code reads them at startup. A `claude`
+window that was already open when `./mac/install.sh` ran keeps working normally
+but never reports to the device. Quit it and open a new one.
+
+**3. Is the connector relaying?** The control page at <http://127.0.0.1:8790>
+says so directly. If it isn't, the Mac and the device aren't talking at all —
+that's Bluetooth and Nocturne, not Claude Code.
+
+### Symptoms
+
 **`./mac/install.sh` stops with "command not found".** Node or Claude Code isn't
 installed, or Terminal hasn't picked it up yet. Redo Step 1 and open a fresh
 Terminal window.
@@ -207,6 +236,11 @@ Terminal window.
 ```sh
 tail -20 daemon/logs/launchd.err.log
 ```
+
+**Sessions appear, but permissions and questions never do.** The hooks aren't
+reaching the daemon. Check `hooks` in `/status` above; if it's false, re-run
+`node daemon/scripts/install-hooks.js`. If it's true, the sessions predate the
+install — restart them.
 
 **macOS refuses to open Nocturne.** The `xattr` command in Step 3 was skipped, or
 was run before the app was moved into Applications. Run it again.
@@ -219,8 +253,115 @@ while still holding.
 for a full second. If nothing happens, check that Nocturne's **Claude Code relay**
 toggle is on and that the control page shows the connector relaying.
 
-**Answering a question does nothing.** Grant Terminal (or your terminal app)
-Automation access under **System Settings → Privacy & Security → Automation**.
+**Answering a question does nothing.** An Automation permission is missing or
+was denied. See the next section — this is the single most common failure, and
+the one that comes back on its own after a Claude Code update.
+
+**It worked yesterday and stopped today.** Same section. Claude Code updated,
+and the permission didn't follow it.
+
+---
+
+## Granting macOS permission
+
+Permissions on the device are answered over the hook and need nothing from
+macOS. **Questions** — multiple-choice asks and plan approvals — can't be
+answered that way, so the daemon raises the session's window and types the
+answer. Typing is what macOS gates.
+
+Two grants, both under **System Settings → Privacy & Security → Automation**:
+
+| Grant | What breaks without it |
+|---|---|
+| → **Terminal** | Pressing a tile can't raise that session's window. |
+| → **System Events** | The device can raise the window but can't type the answer. It tells you to press the key yourself. |
+
+macOS asks the first time each one is needed — a dialog reading *"… wants to
+control …"*. Click **OK**. **If you ever click "Don't Allow", macOS remembers
+the refusal and never asks again**; the only way back is to switch the toggle on
+by hand in that pane.
+
+### The dialog probably won't say "Claude"
+
+An Automation grant belongs to one exact binary, and Claude Code's binary is
+its own version number: it lives at `~/.local/share/claude/versions/2.1.220`,
+and the file is literally named `2.1.220`. So the dialog can read **"2.1.220"
+wants to control "System Events"**, and the Automation pane lists an entry
+called **2.1.220** with no other clue what it is. That is Claude Code. Allow it.
+
+Newer installs identify themselves as **Claude** (`com.anthropic.claude-code`)
+instead — one stable name that survives updates. If you see both, leave both on
+and prefer the **Claude** one.
+
+This is also why the grant evaporates: **every Claude Code update is a new
+version number, so it's a new binary, with no grant.** The old versions keep
+their rows forever, including the denied ones, which never re-prompt. If
+answering questions quietly stopped working, look for a fresh version-numbered
+entry in the Automation pane and switch it on.
+
+The dialog names whoever macOS holds responsible for the daemon, which is
+whatever started it — Claude Code, the terminal you launched it from, or `node`
+under the LaunchAgent. Grant what it names. If you change how the daemon starts,
+expect to be asked once more.
+
+### Read what macOS actually recorded
+
+```sh
+sqlite3 ~/Library/"Application Support"/com.apple.TCC/TCC.db \
+  "select client, indirect_object_identifier, auth_value from access
+   where service='kTCCServiceAppleEvents'"
+```
+
+`auth_value` is `2` for allowed and `0` for denied. The rows that matter name
+`com.anthropic.claude-code` or a `…/versions/<number>` path on the left, and
+`com.apple.systemevents` or `com.apple.Terminal` on the right. A `0` there is a
+denial that will never prompt you again.
+
+To wipe the slate and be asked afresh at the next answer:
+
+```sh
+tccutil reset AppleEvents
+```
+
+> That resets **every** app's Automation grants, not only Claude's. Each app
+> asks again the next time it needs one — nothing is lost permanently, but
+> other automations you rely on will prompt once.
+
+---
+
+## Prompts that work better with the device
+
+None of this is required — the device works against a stock Claude Code. These
+are the habits that keep more of a session answerable from the dial instead of
+sending you back to the keyboard. The first three are worth putting in your
+`~/.claude/CLAUDE.md` so every session inherits them.
+
+**Ask for decisions as multiple choice.** Only two things reach the device
+queue: tool permissions, and `AskUserQuestion` cards. A question typed as free
+prose — *"what should I call it?"* — shows up nowhere and blocks the session
+until you walk over. Something like *"When you need a decision from me, ask it
+as a multiple-choice question with concrete options rather than open prose"*
+converts most of them. Batching is fine: a multi-question ask is one card you
+walk through and submit.
+
+**Leave the session in a mode that actually asks.** Manual approve and plan mode
+route every permission through the hook, so they land on the device.
+`--dangerously-skip-permissions` asks nobody, and accept-edits swallows file
+edits before the hook sees them — those sessions show up as tiles but never
+queue anything. Each tile prints its mode, so you can see which is which.
+
+**Keep every request coming from the same place.** macOS grants are per-binary,
+so one terminal app and one Claude Code install means one set of permissions to
+grant, once. Running some sessions from Terminal, some from another emulator,
+some from a second Claude install gives you several separate macOS clients —
+each needing its own grant, each silently failing to type until you notice and
+give it one.
+
+**Run Claude Code in Terminal.app if you can.** It's the only mainstream
+emulator that exposes a per-tab tty, which is how the daemon finds the exact
+window for a session. In iTerm2, Ghostty or WezTerm the device raises the app
+and leaves the keypress to you. VS Code's integrated terminal isn't an OS window
+at all and can't be targeted.
 
 ---
 
