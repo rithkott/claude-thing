@@ -155,8 +155,10 @@ window.addEventListener('hashchange', function () {
     store.update(store.closedAnswer());
   }
   render();
+  armQueueIdleExit();
 });
 store.subscribe(scheduleRender);
+store.subscribe(armQueueIdleExit);
 var EXPIRED_ASK_TTL_MS = 5 * 60 * 1000;
 setInterval(function () {
   store.sweepExpired(EXPIRED_ASK_TTL_MS);
@@ -167,8 +169,41 @@ setInterval(function () {
 
 // ---- the device stays put ---------------------------------------------------
 // It sits in peripheral vision, but the screen you left it on is the screen you
-// come back to: nothing navigates on its own timer. surface() below is the one
-// exception — it wakes the device to the queue when the daemon needs a person.
+// come back to: no page drifts on its own timer. Two exceptions, both about the
+// queue and nothing else: surface() below wakes the device to the queue when the
+// daemon needs a person, and an empty queue hands the screen back below.
+
+// An empty queue is a dead end — it says NOTHING WAITING ON YOU and there is no
+// press that does anything. Left on it, the device shows nothing for however
+// long it sits there, so a minute after the last ask clears it falls back to the
+// sessions list, which at least keeps working. The clock, usage and every other
+// page are untouched: the timer only ever runs while the queue is on screen and
+// empty, and any ask arriving cancels it.
+var QUEUE_IDLE_EXIT_MS = 60000;
+var queueIdleTimer = null;
+
+function armQueueIdleExit() {
+  var idle = route().name === 'queue' && !store.get().asks.length;
+  if (!idle) {
+    if (queueIdleTimer) { clearTimeout(queueIdleTimer); queueIdleTimer = null; }
+    return;
+  }
+  // Already counting down — a store write that leaves the queue empty (a
+  // session update, a usage tick) must not restart the minute.
+  if (queueIdleTimer) return;
+  queueIdleTimer = setTimeout(function () {
+    queueIdleTimer = null;
+    // Re-checked because the state can have moved under the timer. An answer
+    // still held for undo, or still being typed on the Mac, has an indicator
+    // running on this screen — that is not a queue that is done with you.
+    var st = store.get();
+    if (route().name !== 'queue' || st.asks.length || inflight(st, UNDO_MS)) {
+      return armQueueIdleExit();
+    }
+    returnTo = '#/list';
+    nav('#/list');
+  }, QUEUE_IDLE_EXIT_MS);
+}
 
 // The prompt screen acts against a live deadline, so its countdown must tick
 // on its own clock. It used to ride the daemon's event stream — which now goes
@@ -947,3 +982,4 @@ ws.onOpen(function () {
 });
 
 render();
+armQueueIdleExit();   // booting straight onto an empty queue counts too
