@@ -274,7 +274,19 @@ echo ">> building DMG (${DMG_ARGS[*]})"
 mkdir -p "$DIST_DIR"
 DMG="$(ls -t "${BUILD_DIR}/output"/*.dmg 2>/dev/null | head -1)"
 [ -n "$DMG" ] || fail "the connector's DMG script produced nothing in ${BUILD_DIR}/output"
-cp "$DMG" "${DIST_DIR}/$(basename "$DMG")"
+
+# The connector names its own build Nocturne-<ver>-local.dmg, which on a release
+# page is indistinguishable from stock Nocturne. This one carries the Claude
+# relay, so it says so: Nocturne-claude-<connector version>.dmg.
+BASE="$(basename "$DMG")"
+CONNECTOR_VER="${BASE#Nocturne-}"
+CONNECTOR_VER="${CONNECTOR_VER%.dmg}"
+CONNECTOR_VER="${CONNECTOR_VER%-local}"
+case "$BASE" in
+  Nocturne-*.dmg) OUT="Nocturne-claude-${CONNECTOR_VER}.dmg" ;;
+  *) OUT="$BASE" ;;
+esac
+cp "$DMG" "${DIST_DIR}/${OUT}"
 
 echo
-echo "DMG: ${DIST_DIR}/$(basename "$DMG")"
+echo "DMG: ${DIST_DIR}/${OUT}  (connector ${CONNECTOR_VER})"

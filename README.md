@@ -79,8 +79,9 @@ To undo everything this step did, run `./mac/uninstall.sh` from the same folder.
 This app carries the traffic between your Mac and the Car Thing over Bluetooth.
 
 1. Go to the [latest release](https://github.com/rithkott/claude-thing/releases/latest).
-2. Under **Assets**, download **`Nocturne-claude-1.4.dmg`** (the version number
-   may be higher).
+2. Under **Assets**, download the file named **`Nocturne-claude-….dmg`** — the
+   number in it is Nocturne's own version, not this project's, so take whichever
+   one is there.
 3. Open the downloaded file and drag **Nocturne** into your Applications folder.
 4. Paste this into Terminal:
 
