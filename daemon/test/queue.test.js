@@ -96,7 +96,7 @@ test('long labels and huge option lists are clamped for the BT link', () => {
   assert.equal(ask.options[0].description.length, 120, 'description clamped');
 });
 
-test('answering focuses the session and types the option number', async () => {
+test('answering focuses the session and walks to the option', async () => {
   const { queue, calls, events } = setup();
   queue.onQuestion(QUESTION_HOOK);
   const [ask] = queue.list();
@@ -106,7 +106,7 @@ test('answering focuses the session and types the option number', async () => {
   assert.equal(res.viaKeyboard, true);
   assert.equal(res.option, 'Maintenance window');
   assert.equal(calls.focus, 1);
-  assert.deepEqual(calls.typed, ['2'], 'option index 1 is keypress "2"');
+  assert.deepEqual(calls.typed, ['down', 'return'], 'option index 1 is one Down, then Return');
   assert.equal(queue.size(), 0, 'resolved once typed');
   assert.ok(events.some((e) => e.topic === 'claude.question.resolved'));
 });
@@ -201,7 +201,7 @@ test('a question with no options is dropped, and its siblings survive', () => {
   assert.equal(ask.header, 'REAL');
 });
 
-test('answering a group types every digit and the Submit Return', async () => {
+test('answering a group walks each question and types the Submit Return', async () => {
   const { queue, calls } = setup();
   queue.onQuestion(MULTI_HOOK);
   const [ask] = queue.list();
@@ -210,10 +210,10 @@ test('answering a group types every digit and the Submit Return', async () => {
   assert.equal(res.accepted, true);
   assert.equal(res.viaKeyboard, true);
   assert.deepEqual(calls.typed, [
-    '1',                  // Auth method → OAuth, advances on its own
-    '1', '3', 'tab',      // Environments → Dev + Production, Tab moves on
-    '2',                  // Rollout → Canary, advances itself
-    'return',             // the "Submit answers" step
+    'return',                 // Auth method → OAuth, the first option: no Down
+    '1', '3', 'tab',          // Environments → Dev + Production, Tab moves on
+    'down', 'return',         // Rollout → Canary, one Down to reach it
+    'return',                 // the "Submit answers" step
   ]);
   assert.equal(res.option, 'OAuth · Dev + Production · Canary');
   assert.equal(queue.size(), 0);
@@ -228,7 +228,7 @@ test('a multiSelect answered with nothing ticked types no digits, just the move 
 
   const res = await queue.answerQuestion(ask.id, [[1], [], [0]]);
   assert.equal(res.accepted, true);
-  assert.deepEqual(calls.typed, ['2', 'tab', '1', 'return']);
+  assert.deepEqual(calls.typed, ['down', 'return', 'tab', 'return', 'return']);
   assert.equal(res.option, 'API keys · none · All at once');
 });
 
@@ -241,9 +241,20 @@ test('the sequence is the final answer, never a replay of the toggling', () => {
   );
 });
 
+// The bug this pins: a digit means "select" in the shared list and "move the
+// cursor" in the split-pane layout a question with option previews gets. Only
+// Down-then-Return means the same thing in both, and the daemon cannot tell
+// which layout is on screen.
+test('keySequence: a single-select is walked with Downs, never digits', () => {
+  assert.deepEqual(keySequence([{ multiSelect: false }], [[2]]),
+    ['down', 'down', 'return']);
+  assert.deepEqual(keySequence([{ multiSelect: false }], [[0]]), ['return'],
+    'the cursor already starts on the first option');
+});
+
 test('keySequence: a lone question gets no trailing Return', () => {
-  assert.deepEqual(keySequence([{ multiSelect: false }], [[2]]), ['3'],
-    'the digit picks and advances; a trailing Return would answer whatever came next');
+  assert.deepEqual(keySequence([{ multiSelect: false }], [[2]]), ['down', 'down', 'return'],
+    'the Return picks and advances; a second one would answer whatever came next');
   // A lone multiSelect still needs a key to leave the list, but a
   // one-question dialog hides the Submit tab, so there is no submit step for
   // a trailing Return to take. Whether Tab moves anywhere with the tab strip
@@ -304,7 +315,8 @@ test('two answers at once are typed one after the other, never interleaved', asy
 
   release();
   await Promise.all([pa, pb]);
-  assert.deepEqual(calls.typed, ['1', '2'], 'in order, one sequence then the other');
+  assert.deepEqual(calls.typed, ['return', 'down', 'return'],
+    'in order, one sequence then the other');
   assert.equal(calls.focus, 2);
 });
 
@@ -337,7 +349,7 @@ test('an answer resolved while it waited its turn types nothing', async () => {
   assert.equal(res.accepted, false);
   assert.equal(res.reason, 'already resolved',
     'typing into a dialog that is gone answers whatever replaced it');
-  assert.deepEqual(calls.typed, ['1'], 'only the answer that got there first');
+  assert.deepEqual(calls.typed, ['return'], 'only the answer that got there first');
 });
 
 test('a turn that throws does not wedge every answer behind it', async () => {
@@ -358,7 +370,7 @@ test('a turn that throws does not wedge every answer behind it', async () => {
   await assert.rejects(queue.answerQuestion(a.id, [[0]]));
   const res = await queue.answerQuestion(b.id, [[1]]);
   assert.equal(res.accepted, true);
-  assert.deepEqual(calls.typed, ['2'], 'the chain survived the failed turn');
+  assert.deepEqual(calls.typed, ['down', 'return'], 'the chain survived the failed turn');
 });
 
 test('the terminal answering it clears our copy', () => {
@@ -391,14 +403,14 @@ test('a plan approval becomes a question with the two approve choices', () => {
   assert.equal(store.get('sess-1').state, 'attention', 'session shows as blocked');
 });
 
-test('answering a plan types the digit of the chosen approve option', async () => {
+test('answering a plan walks to the chosen approve option', async () => {
   const { queue, calls } = setup();
   queue.onPlanApproval(PLAN_HOOK);
   const [ask] = queue.list();
 
   const res = await queue.answerQuestion(ask.id, 1);
   assert.equal(res.accepted, true);
-  assert.deepEqual(calls.typed, ['2'], 'option index 1 is keypress "2"');
+  assert.deepEqual(calls.typed, ['down', 'return'], 'option index 1 is one Down, then Return');
   assert.equal(queue.size(), 0);
 });
 

@@ -19,11 +19,11 @@ import { log } from './log.js';
 const SESSIONS_DIR = path.join(CLAUDE_DIR, 'sessions');
 
 // Pause between keys of a typed sequence, in seconds. Long enough for Claude
-// Code's dialog to advance to the next question before the next digit lands.
+// Code's dialog to advance to the next question before the next key lands.
 const KEY_GAP_S = 0.15;
 
 // The non-printing keys a question dialog needs, as System Events key codes.
-const KEY_CODES = { return: 36, tab: 48 };
+const KEY_CODES = { return: 36, tab: 48, down: 125 };
 
 function osa(script, timeout = 5000) {
   return new Promise((resolve) => {
