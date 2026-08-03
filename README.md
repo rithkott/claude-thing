@@ -4,6 +4,8 @@ Turn a Spotify Car Thing into a desk monitor for Claude Code: every session at a
 glance, a queue of everything waiting on you, live usage bars, and permission
 approve/deny from the dial.
 
+**THIS IS A BETA PROJECT. I will be shipping updates almost daily until it reaches a relatively stable and bug free state. If you choose to use it be sure to update your firmware and daemon regularly**
+
 > **A fork of [Nocturne](https://github.com/usenocturne/nocturne) 4.0**, the
 > custom Car Thing firmware by [usenocturne](https://github.com/usenocturne).
 > Nothing Nocturne does is removed — this adds a second mode alongside it, and
