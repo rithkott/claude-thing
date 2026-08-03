@@ -4,6 +4,15 @@
 
 All feature work happens in a git worktree on a feature branch, and lands on `main` via a GitHub PR only after claiming a version in `RELEASES.md`. Never commit feature work directly on `main`.
 
+Two channels ship from `main`, both published by CI (`.github/workflows/`):
+
+| Channel | Tag | GitHub | Cut by |
+|---------|-----|--------|--------|
+| **dev** | `X.Y.Z-dev` | prerelease | automatic, every merged PR |
+| **production** | `X.Y.Z` | Latest | the `promote` workflow, only when the user asks |
+
+Merging never touches production. `releases/latest` — what the README links to — stays on the last promoted build, so dev builds are invisible to anyone who did not go looking for them.
+
 ### 1. Start a feature
 
 ```sh
@@ -13,7 +22,8 @@ git worktree add ../claude-thing-<slug> -b feat/<slug> origin/main
 
 - `<slug>` is a short kebab-case name (e.g. `feat/volume-knob`).
 - One worktree per feature. Parallel features = parallel worktrees, each isolated.
-- Hotfixes use the same flow with a `fix/<slug>` branch.
+- Ordinary bug fixes use the same flow with a `fix/<slug>` branch — they ship to dev like everything else.
+- `hotfix/<slug>` is the one branch prefix that goes straight to production, skipping dev. Reserve it for things that must reach users now; a PR labelled `prod` does the same.
 
 ### 2. Work
 
@@ -55,30 +65,16 @@ gh pr merge --squash --delete-branch
 
 If the merge conflicts on `RELEASES.md`, someone else claimed that version first: rebase on `origin/main`, bump to the next free version, force-push, merge again.
 
-### 5. Tag the release
+### 5. Watch the dev release land
 
-After the PR merges (tags are the bare version — no `v` prefix):
-
-```sh
-git fetch origin
-git tag X.Y.Z origin/main
-git push origin X.Y.Z
-gh release create X.Y.Z --generate-notes --title "X.Y.Z — <slug>"
-```
-
-Every release ships the current DMG and firmware zip as assets — no asset-less releases:
+The merge fires `.github/workflows/release.yml`. Nothing to run by hand — it reads the top version out of `RELEASES.md`, builds the firmware zip (device app + cross-compiled `nocturned` injected into the stock Nocturne image) and the connector DMG, and publishes `X.Y.Z-dev` as a prerelease pinned to the merge commit. Tags are bare — no `v` prefix.
 
 ```sh
-# firmware: always rebuilt (device-app may have changed)
-npm --prefix device-app run build
-node scripts/inject-firmware.js --zip ~/Downloads/nocturne_image_v<ver>.zip \
-  --nocturned dist/nocturned --out dist/nocturne_v<ver>_claude_X.Y.Z.zip
-
-# DMG: rebuild with scripts/build-connector-dmg.sh ONLY if patches/, mac/, or
-# the connector relay changed since the last DMG; otherwise reuse dist/Nocturne-claude-*.dmg
-
-gh release upload X.Y.Z dist/nocturne_v<ver>_claude_X.Y.Z.zip dist/Nocturne-claude-*.dmg
+gh run watch "$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+gh release view X.Y.Z-dev
 ```
+
+Re-running the workflow for a version that already has a dev release replaces it; production releases are immutable and the workflow refuses to overwrite one.
 
 Then refresh the local knowledge graph so the next feature starts current:
 
@@ -93,11 +89,24 @@ git worktree remove ../claude-thing-<slug>
 git branch -D feat/<slug>
 ```
 
+### 7. Promote to production (only when the user asks)
+
+Production is a deliberate act, never a side effect of merging. Promotion re-publishes the assets that already shipped on dev, at the same commit — no rebuild, so what was tested is what ships.
+
+```sh
+gh workflow run promote.yml                        # newest dev prerelease
+gh workflow run promote.yml -f dev_tag=X.Y.Z-dev   # a specific one
+```
+
+`X.Y.Z-dev` becomes `X.Y.Z`, marked Latest. Dev versions in between (1.18.0-dev, 1.18.1-dev …) stay prereleases forever — they were never production, and their numbers are not reused.
+
 ### Rules
 
-- Every merge to `main` = exactly one version, one `RELEASES.md` row, one tag.
+- Every merge to `main` = exactly one version, one `RELEASES.md` row, one dev prerelease.
+- Production releases are cut only on explicit instruction from the user, via `promote.yml` or a `hotfix/` branch.
 - Major version bumps happen only on explicit instruction from the user.
 - Every GitHub release carries the latest DMG and firmware zip as downloadable assets.
+- A published production version is immutable: never retag or re-release `X.Y.Z`, claim the next version instead.
 - No direct commits to `main` except the automated parts of this flow.
 - Multiple features in flight is the normal case; worktrees keep them independent, the ledger serializes them at merge time.
 - GitNexus index artifacts (`.gitnexus/`, `AGENTS.md`, `.claude/skills/gitnexus/`) are gitignored and never pushed — they are rebuilt locally.
@@ -105,7 +114,7 @@ git branch -D feat/<slug>
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **claude-thing** (6526 symbols, 13610 relationships, 161 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **claude-thing** (7108 symbols, 15028 relationships, 197 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

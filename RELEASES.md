@@ -4,6 +4,8 @@ Claimed versions. One row per merge to `main`. See CLAUDE.md → Release process
 
 Versioning is semver-shaped: **major** only when explicitly asked for, **minor** for a feature addition, **patch** for a bug fix or docs.
 
+A row ships to the **dev** channel as `X.Y.Z-dev` the moment its PR merges. It becomes production `X.Y.Z` only when the `promote` workflow is run, so rows below the newest promoted version may exist as dev prereleases and nothing else.
+
 | Version | Date | Type | Branch | Summary |
 |---------|------|------|--------|---------|
 | 1.0.0 | 2026-07-30 | initial | initial | Car Thing as a Claude Code monitor |
@@ -49,3 +51,4 @@ Versioning is semver-shaped: **major** only when explicitly asked for, **minor**
 | 1.17.0 | 2026-08-02 | feature | multi-question | A multi-question AskUserQuestion is one card you walk, edit and submit — multiSelect answerable at last, and every tap on the device works again |
 | 1.17.1 | 2026-08-02 | fix | answer-serialization | Answers given in quick succession are typed one at a time, so keystrokes can no longer interleave into the wrong session's terminal |
 | 1.17.2 | 2026-08-02 | fix | semver-ledger | The ledger is semver end to end — every past release renumbered to match its tag, and the release process documents the bump rules |
+| 1.18.0 | 2026-08-03 | feature | dev-channel | Every merge auto-publishes an X.Y.Z-dev prerelease from CI; production is a separate promote step, so features reach dev without touching what users install |

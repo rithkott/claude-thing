@@ -1,0 +1,245 @@
+name: release
+
+# Every merged PR publishes a build. Features and fixes go to the dev channel
+# as an X.Y.Z-dev prerelease; only a hotfix/* branch (or an explicit dispatch)
+# cuts a production release. Promoting a dev build to production is a separate
+# workflow — see promote.yml.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: which channel to publish
+        type: choice
+        default: dev
+        options: [dev, prod]
+
+permissions:
+  contents: write
+
+# One release at a time: two merges landing together would otherwise race on
+# the same tag namespace.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # Stock Nocturne image the Claude app is injected into.
+  NOCTURNE_IMAGE_TAG: v4.0.7
+  # Bump to force a rebuild of the cached nocturned binary / DMG even when no
+  # tracked file changed (i.e. to pick up upstream nocturned or connector).
+  NOCTURNED_EPOCH: '1'
+  DMG_EPOCH: '1'
+
+jobs:
+  meta:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      title: ${{ steps.meta.outputs.title }}
+      channel: ${{ steps.meta.outputs.channel }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      summary: ${{ steps.meta.outputs.summary }}
+    steps:
+      - id: sha
+        run: echo "sha=${{ github.event.pull_request.merge_commit_sha || github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.sha.outputs.sha }}
+
+      - id: channel
+        env:
+          EVENT: ${{ github.event_name }}
+          DISPATCH_CHANNEL: ${{ inputs.channel }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HAS_PROD_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'prod') }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then
+            channel="$DISPATCH_CHANNEL"
+          elif [ "$HAS_PROD_LABEL" = true ]; then
+            channel=prod
+          else
+            case "$HEAD_REF" in
+              hotfix/*) channel=prod ;;
+              *)        channel=dev ;;
+            esac
+          fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "publishing to the $channel channel (branch: ${HEAD_REF:-n/a})"
+
+      - id: meta
+        run: node scripts/release-meta.mjs --channel "${{ steps.channel.outputs.channel }}" >> "$GITHUB_OUTPUT"
+
+      - name: refuse to overwrite a production release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          CHANNEL: ${{ steps.meta.outputs.channel }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then exit 0; fi
+          if [ "$CHANNEL" = prod ]; then
+            echo "ERROR: $TAG already exists. A production version is immutable — claim the next version in RELEASES.md." >&2
+            exit 1
+          fi
+          echo "$TAG exists; the dev channel rolls forward, so it will be replaced."
+
+  firmware:
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: build the device app
+        run: |
+          npm --prefix device-app ci
+          npm --prefix device-app run build
+
+      # nocturned only changes when its build inputs or NOCTURNED_EPOCH do; the
+      # cross-compile is the slowest thing in this workflow, so it is cached.
+      - name: restore nocturned
+        id: nocturned-cache
+        uses: actions/cache@v4
+        with:
+          path: dist/nocturned
+          key: nocturned-${{ env.NOCTURNED_EPOCH }}-${{ hashFiles('scripts/build-nocturned.sh', 'scripts/nocturned.Dockerfile') }}
+
+      - name: cross-compile nocturned
+        if: steps.nocturned-cache.outputs.cache-hit != 'true'
+        run: scripts/build-nocturned.sh
+
+      - name: restore the stock Nocturne image
+        id: image-cache
+        uses: actions/cache@v4
+        with:
+          path: firmware/nocturne_image_${{ env.NOCTURNE_IMAGE_TAG }}.zip
+          key: nocturne-image-${{ env.NOCTURNE_IMAGE_TAG }}
+
+      - name: download the stock Nocturne image
+        if: steps.image-cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p firmware
+          gh release download "$NOCTURNE_IMAGE_TAG" --repo usenocturne/nocturne \
+            --pattern 'nocturne_image_*.zip' --dir firmware --clobber
+
+      - name: install ext2 tooling
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends e2fsprogs zip unzip
+
+      - name: inject the Claude app
+        env:
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          base="firmware/nocturne_image_${NOCTURNE_IMAGE_TAG}.zip"
+          [ -f "$base" ] || { echo "ERROR: no base image at $base" >&2; exit 1; }
+          node scripts/inject-firmware.js \
+            --zip "$base" \
+            --nocturned dist/nocturned \
+            --out "dist/nocturne_${NOCTURNE_IMAGE_TAG}_claude_${TAG}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: dist/nocturne_*_claude_*.zip
+          retention-days: 7
+          if-no-files-found: error
+
+  dmg:
+    needs: meta
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.sha }}
+
+      # The DMG is the connector plus our relay patch; it only changes when the
+      # patch sources or DMG_EPOCH do, so an unchanged one is reused verbatim.
+      - name: restore the DMG
+        id: dmg-cache
+        uses: actions/cache@v4
+        with:
+          path: dist/*.dmg
+          key: dmg-${{ env.DMG_EPOCH }}-${{ hashFiles('patches/**', 'mac/**', 'scripts/build-connector-dmg.sh') }}
+
+      - name: build the connector DMG
+        if: steps.dmg-cache.outputs.cache-hit != 'true'
+        run: scripts/build-connector-dmg.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dmg
+          path: dist/*.dmg
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    needs: [meta, firmware, dmg]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.sha }}
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          TITLE: ${{ needs.meta.outputs.title }}
+          CHANNEL: ${{ needs.meta.outputs.channel }}
+          PRERELEASE: ${{ needs.meta.outputs.prerelease }}
+          SUMMARY: ${{ needs.meta.outputs.summary }}
+          SHA: ${{ needs.meta.outputs.sha }}
+        run: |
+          set -euo pipefail
+          ls -la assets
+
+          # A dev tag is a moving target until it is promoted: re-running the
+          # workflow for the same version replaces the build rather than failing.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --yes --cleanup-tag
+          fi
+
+          flags=(--target "$SHA" --title "$TITLE" --generate-notes)
+          if [ "$PRERELEASE" = true ]; then
+            flags+=(--prerelease --latest=false)
+            note="Dev build. Install it to try ${SUMMARY}; the production channel is the newest release without the *Pre-release* badge. Promote with the \`promote\` workflow."
+          else
+            flags+=(--latest)
+            note="Production build."
+          fi
+
+          # Notes since the last production release, so a dev build lists every
+          # change a user on production has not seen yet.
+          prev="$(gh release list --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // empty')"
+          if [ -n "$prev" ] && git rev-parse -q --verify "refs/tags/$prev" >/dev/null; then
+            flags+=(--notes-start-tag "$prev")
+          fi
+
+          gh release create "$TAG" "${flags[@]}" assets/*
+
+          gh release view "$TAG" --json body --jq .body > body.md
+          printf '%s\n\n---\n\n' "$note" | cat - body.md > new-body.md
+          gh release edit "$TAG" --notes-file new-body.md
+
+          echo "published $TAG ($CHANNEL)" >> "$GITHUB_STEP_SUMMARY"
+          gh release view "$TAG" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"
