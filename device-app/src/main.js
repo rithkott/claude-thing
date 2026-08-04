@@ -706,9 +706,25 @@ function nextAskOrBack() {
 
 // ---- daemon events ----------------------------------------------------------
 
-ws.on('claude.sessions.update', function (snap) { store.applySnapshot(snap); });
-ws.on('claude.session.update', function (d) { store.applyDetail(d); });
-ws.on('claude.usage.update', function (u) { store.update({ usage: u }); });
+// Any claude.* frame the daemon pushed is proof the daemon is there. This
+// matters because on hardware nothing else says so: the device's socket is to
+// nocturned on the panel itself and never drops when the Mac link comes and
+// goes, claude.daemon.status is synthesized only by the emulator's bridge, and
+// so the boot handshake was the one and only thing that ever set this flag. A
+// connector that had not finished linking when the app booted therefore left
+// DAEMON OFFLINE on screen for the rest of the session while every session,
+// prompt and usage figure behind it updated fine.
+function daemonAlive() {
+  if (store.get().daemonConnected) return;
+  store.update({ daemonConnected: true });
+  // Same reasoning as claude.daemon.status: the queue on the other side may be
+  // a different one than the cards on screen came from.
+  syncQueue(false);
+}
+
+ws.on('claude.sessions.update', function (snap) { daemonAlive(); store.applySnapshot(snap); });
+ws.on('claude.session.update', function (d) { daemonAlive(); store.applyDetail(d); });
+ws.on('claude.usage.update', function (u) { daemonAlive(); store.update({ usage: u }); });
 
 // Every ask surfaces on the queue — the screen where everything is answerable
 // in place. The device only moves itself when it was resting: from ambient it
@@ -898,5 +914,22 @@ ws.onOpen(function () {
     store.update({ usage: u });
   }).catch(function () {});
 });
+
+// The handshake above runs once, when the socket to nocturned opens — and that
+// socket is local, so it opens seconds after boot, routinely before the Mac
+// connector has linked. One failed call then is not an offline Mac, and there
+// is no second onOpen to try again. Keep asking for as long as the banner is
+// up; the first answer clears it and pulls the state the boot call missed.
+var DAEMON_RETRY_MS = 5000;
+setInterval(function () {
+  if (store.get().daemonConnected) return;
+  ws.request('claude.sessions.list', {}).then(function (snap) {
+    store.applySnapshot(snap);
+    daemonAlive();
+    ws.request('claude.usage.get', {}).then(function (u) {
+      store.update({ usage: u });
+    }).catch(function () {});
+  }).catch(function () {});
+}, DAEMON_RETRY_MS);
 
 render();
