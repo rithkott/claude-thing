@@ -4,6 +4,8 @@ Claimed versions. One row per merge to `main`. See CLAUDE.md → Release process
 
 Versioning is semver-shaped: **major** only when explicitly asked for, **minor** for a feature addition, **patch** for a bug fix or docs.
 
+A row ships to the **dev** channel as `X.Y.Z-dev` the moment its PR merges. It becomes production `X.Y.Z` only when the `promote` workflow is run, so rows below the newest promoted version may exist as dev prereleases and nothing else.
+
 | Version | Date | Type | Branch | Summary |
 |---------|------|------|--------|---------|
 | 1.0.0 | 2026-07-30 | initial | initial | Car Thing as a Claude Code monitor |
@@ -49,3 +51,14 @@ Versioning is semver-shaped: **major** only when explicitly asked for, **minor**
 | 1.17.0 | 2026-08-02 | feature | multi-question | A multi-question AskUserQuestion is one card you walk, edit and submit — multiSelect answerable at last, and every tap on the device works again |
 | 1.17.1 | 2026-08-02 | fix | answer-serialization | Answers given in quick succession are typed one at a time, so keystrokes can no longer interleave into the wrong session's terminal |
 | 1.17.2 | 2026-08-02 | fix | semver-ledger | The ledger is semver end to end — every past release renumbered to match its tag, and the release process documents the bump rules |
+| 1.18.0 | 2026-08-03 | feature | dev-channel | Every merge auto-publishes an X.Y.Z-dev prerelease from CI; production is a separate promote step, so features reach dev without touching what users install |
+| 1.18.1 | 2026-08-03 | fix | preview-question-keys | A question whose options carry previews is answerable from the device again — its dialog reads digits as cursor moves, so answers are walked with Down and taken with Return |
+| 1.18.2 | 2026-08-03 | fix | dmg-asset-name | The release DMG is named Nocturne-claude-<connector version>.dmg again, so it is distinguishable from a stock Nocturne download on the release page |
+| 1.18.3 | 2026-08-03 | fix | readme-debug | README gains a debug path: three ordered checks, where and how to grant the macOS Automation permissions (and why the dialog says a version number), and the prompts that keep a session answerable from the dial |
+| 1.19.0 | 2026-08-03 | feature | answer-progress | Answering on the device shows the answer on its way — a ring drains over the undo window, then spins while the Mac types it, so the wait before it lands in the terminal no longer looks like nothing happened |
+| 1.20.0 | 2026-08-03 | feature | queue-idle-exit | An empty queue hands the screen back to the session list after a minute, so the device never sits on a dead end — every other page stays put |
+| 1.20.1 | 2026-08-03 | fix | boot-list-chunk-fit | Boot session list fits one Bluetooth chunk: device asks for 4, the daemon caps relay roles that forget and follows up with the full grid as an async push |
+| 1.21.0 | 2026-08-03 | feature | session-watch | The device tells the daemon which session it is looking at, and only that detail stream crosses the link — unwatched sessions no longer repaint the grid |
+| 1.22.0 | 2026-08-03 | feature | host-ask-flags-usage-slim | The daemon sends the device only what it draws: usage events slim to the rendered subset, and permissions arrive pre-classified destructive against the full command instead of the truncated summary |
+| 1.22.1 | 2026-08-04 | fix | connector-int-bool-source | The Mac connector packs claude.* frames without coercing 0/1 to booleans, and an intProbe on every snapshot lets the device skip its per-frame repair walk on a clean link |
+| 1.23.0 | 2026-08-04 | feature | dev-branch | Dev releases live on their own `dev` branch and main is the production branch — promoting fast-forwards main onto the promoted commit, so the default branch is always the tree users are running |
