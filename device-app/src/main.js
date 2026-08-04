@@ -966,8 +966,13 @@ function syncQueue(jumpIfIdle) {
   }).catch(function () {});
 }
 
+// A synchronous response cannot span the Bluetooth relay's 2000-byte chunks,
+// and a worst-case SessionSummary is ~355 bytes plus ~160 of envelope — so ask
+// for four. The full grid follows as an async snapshot push, which chunks fine.
+var BOOT_SESSION_LIMIT = 4;
+
 ws.onOpen(function () {
-  ws.request('claude.sessions.list', {}).then(function (snap) {
+  ws.request('claude.sessions.list', { limit: BOOT_SESSION_LIMIT }).then(function (snap) {
     store.update({ daemonConnected: true });
     store.applySnapshot(snap);
   }).catch(function () {

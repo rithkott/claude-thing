@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { DAEMON_VERSION, PID_FILE, MOCK_SESSIONS } from './config.js';
+import { DAEMON_VERSION, PID_FILE, MOCK_SESSIONS, BT_SAFE_SESSION_LIMIT } from './config.js';
 import { createHub } from './hub.js';
 import { createStore } from './sessions/store.js';
 import { createPermissionBridge } from './permission-bridge.js';
@@ -33,7 +33,19 @@ store.onDetail = (detail) => hub.emit('claude.session.update', detail);
 
 hub.setMethods({
   'claude.ping': async () => ({ daemonVersion: DAEMON_VERSION, sessions: store.count() }),
-  'claude.sessions.list': async ({ limit } = {}) => store.snapshot(limit),
+  // Relay roles sit behind the Bluetooth link, whose synchronous responses
+  // cannot span chunks — an uncapped list past ~6 sessions simply never
+  // arrives there. Cap those roles even when the client forgot to ask, and
+  // follow up with the full grid as an async push (those chunk fine) so the
+  // screen fills in seconds instead of waiting out the snapshot heartbeat.
+  'claude.sessions.list': async ({ limit } = {}, { role }) => {
+    const cap = limit || ((role === 'connector' || role === 'emulator') ? BT_SAFE_SESSION_LIMIT : 0);
+    const snap = store.snapshot(cap);
+    if (cap > 0 && store.count() > snap.sessions.length) {
+      setTimeout(() => hub.emit('claude.sessions.update', store.snapshot()), 0);
+    }
+    return snap;
+  },
   'claude.session.get': async ({ id }) => {
     const d = store.get(id);
     if (!d) throw new Error('unknown session');

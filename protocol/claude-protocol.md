@@ -40,7 +40,7 @@ connected clients.
 | Method | Params | Result |
 |---|---|---|
 | `claude.ping` | `{}` | `{daemonVersion, sessions:<n>}` |
-| `claude.sessions.list` | `{limit?}` | `{sessions:[SessionSummary], stats:Stats, serverNowMs, tzOffsetMin}` — unbounded unless `limit` given |
+| `claude.sessions.list` | `{limit?}` | `{sessions:[SessionSummary], stats:Stats, serverNowMs, tzOffsetMin}` — unbounded unless `limit` given, except for `connector`/`emulator` roles, which are capped at 4 (`BT_SAFE_SESSION_LIMIT`) even without `limit`: their synchronous responses must fit one Bluetooth chunk. When the cap trims the list, the daemon follows up with a full `claude.sessions.update` push, which chunks fine. `stats` always counts every session, not the returned slice |
 | `claude.session.get` | `{id}` | `SessionDetail` (error `"unknown session"` if gone) |
 | `claude.permission.answer` | `{requestId, decision:"allow"\|"deny"}` | `{accepted:bool}` — idempotent; `false` when already resolved |
 | `claude.queue.list` | `{}` | `{asks:[Ask]}` — everything waiting on a human, oldest first |
@@ -85,11 +85,12 @@ SessionSummary = {
                         // then draws no effort label and keeps the plain
                         // working sprite
 }
-// ~150 B each, unbounded count — the device grid scrolls sideways through
-// them. Over Bluetooth an async event snapshot spans multiple chunks, which the
-// chunking layer handles; a *synchronous* response cannot, so a constrained
-// client should pass `limit` on claude.sessions.list and rely on the event
-// stream for the full set.
+// ~290 B each measured (~330 worst case), unbounded count — the device grid
+// scrolls sideways through them. Over Bluetooth an async event snapshot spans
+// multiple chunks, which the chunking layer handles; a *synchronous* response
+// cannot, so a constrained client should pass `limit` on claude.sessions.list
+// and rely on the event stream for the full set. The daemon also enforces this
+// for relay roles that forget: see claude.sessions.list above.
 
 SessionDetail = SessionSummary & {
   contextTokens: number, // what the newest turn sent — the raw numerator
