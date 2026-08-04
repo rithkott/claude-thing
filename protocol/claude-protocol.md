@@ -42,6 +42,7 @@ connected clients.
 | `claude.ping` | `{}` | `{daemonVersion, sessions:<n>}` |
 | `claude.sessions.list` | `{limit?}` | `{sessions:[SessionSummary], stats:Stats, serverNowMs, tzOffsetMin}` — unbounded unless `limit` given, except for `connector`/`emulator` roles, which are capped at 4 (`BT_SAFE_SESSION_LIMIT`) even without `limit`: their synchronous responses must fit one Bluetooth chunk. When the cap trims the list, the daemon follows up with a full `claude.sessions.update` push, which chunks fine. `stats` always counts every session, not the returned slice |
 | `claude.session.get` | `{id}` | `SessionDetail` (error `"unknown session"` if gone) |
+| `claude.session.watch` | `{id: string\|null}` | `{ok:true}` — this socket now receives `claude.session.update` only for that session (`null` = none). Opt-in per socket: a client that never sends it gets every detail, as before. Handled inside the hub (it is per-socket state, which registered methods can't see) — `claude.`-prefixed anyway, because the relays forward only that prefix. Watch dies with the socket; a restarted daemon reverts to broadcast-all until the client re-asserts (the device re-sends on `claude.queue.sync`, which fires on every client hello). Known limit: the connector multiplexes all paired devices onto one socket, so the last watch wins |
 | `claude.permission.answer` | `{requestId, decision:"allow"\|"deny"}` | `{accepted:bool}` — idempotent; `false` when already resolved |
 | `claude.queue.list` | `{}` | `{asks:[Ask]}` — everything waiting on a human, oldest first |
 | `claude.question.answer` | `{id, answers}` — `answers` is `number[][]`, one entry per question of the ask, each the option indices picked for it (`optionIndex` still accepted for a lone single-select question) | `{accepted, viaKeyboard, option, keys?, focused?, reason?}` (see below) |
@@ -53,7 +54,7 @@ connected clients.
 | Topic | Data | Notes |
 |---|---|---|
 | `claude.sessions.update` | `{sessions:[SessionSummary], stats:Stats, serverNowMs, tzOffsetMin}` | full idempotent snapshot of ALL sessions, debounced 500 ms. The device's clock is wrong in both axes — no RTC battery, no NTP, no timezone data — so it takes both from here: `serverNowMs` = the Mac's `Date.now()`, the epoch every device-side duration and countdown is measured against; `tzOffsetMin` = the Mac's `Date.getTimezoneOffset()`, which renders it as local time. Not the frame's `server_timestamp_ms` — nocturned re-stamps relayed frames with the device clock |
-| `claude.session.update` | `SessionDetail` | pushed on change for any live session |
+| `claude.session.update` | `SessionDetail` | pushed on change for any live session — unless the receiving socket narrowed itself with `claude.session.watch`, in which case only the watched session's details arrive. The only topic watch ever filters |
 | `claude.permission.request` | `{requestId, sessionId, tool, summary, intent, createdTs, timeoutMs}` | timeoutMs = 55000; `intent` = "you asked: …" from the session's last prompt, "" when unknown |
 | `claude.permission.resolved` | `{requestId, resolution:"allow"\|"deny"\|"timeout"}` | closes prompt everywhere; terminal-answered too |
 | `claude.question.request` | `Ask` (kind `question`) | a multiple-choice question is on screen in some session |

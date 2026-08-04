@@ -26,9 +26,15 @@ export function createHub({ onHello } = {}) {
       type: 'event', topic, data, server_timestamp_ms: Date.now(),
     });
     const droppable = SUPERSEDING.test(topic);
-    for (const socket of clients.keys()) {
+    for (const [socket, meta] of clients.entries()) {
       if (socket.readyState !== socket.OPEN) continue;
       if (droppable && socket.bufferedAmount > MAX_BUFFERED_STATE_BYTES) continue;
+      // Detail events are per-session and mostly noise to a screen showing one
+      // session: a socket that declared a watch gets only its watched id (null
+      // = none at all). Sockets that never sent claude.session.watch — the
+      // webpage, old firmware — get every detail, as before. Only details are
+      // ever filtered; snapshots, asks and resolutions always broadcast.
+      if (topic === 'claude.session.update' && meta.watchSet && (data && data.id) !== meta.watch) continue;
       socket.send(frame);
     }
     // Session snapshots fire constantly and would drown the log — but they are
@@ -74,6 +80,16 @@ export function createHub({ onHello } = {}) {
       if (msg.method === 'bridge.status') {
         connectorStatus = { ...(msg.params || {}), updatedTs: Date.now() };
         emit('bridge.connector', connectorStatus);
+        return respond({ type: 'response', id: msg.id, result: { ok: true } });
+      }
+      // claude.-prefixed because the relays forward only that prefix, yet
+      // handled here rather than via setMethods: it mutates per-socket state,
+      // which registered handlers never see. Watch dies with the socket, so a
+      // restarted daemon reverts to broadcast-all — today's behavior — until
+      // the client re-asserts.
+      if (msg.method === 'claude.session.watch') {
+        meta.watch = (msg.params && msg.params.id) || null;
+        meta.watchSet = true;
         return respond({ type: 'response', id: msg.id, result: { ok: true } });
       }
 

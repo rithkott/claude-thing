@@ -68,6 +68,18 @@ export function isDestructive(ask) {
   return ask.kind === 'permission' && DESTRUCTIVE_RE.test(String(ask.summary || ''));
 }
 
+// Which session's detail stream this screen actually reads: the open detail
+// page's session, or the grid cursor's. Every other screen renders no detail,
+// so the daemon can keep the rest of the stream to itself (null = none).
+export function watchTarget(routeName, routeArg, state) {
+  if (routeName === 'session') return routeArg || null;
+  if (routeName === 'list') {
+    var s = state.sessions[state.selectedIndex];
+    return s ? s.id : null;
+  }
+  return null;
+}
+
 export function topbar(title, connected, count) {
   return '<div class="topbar"><span class="mark"></span>' +
     '<span class="title">' + esc(title) + '</span>' +
