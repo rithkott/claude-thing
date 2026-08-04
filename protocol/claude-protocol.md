@@ -60,7 +60,7 @@ connected clients.
 | `claude.question.request` | `Ask` (kind `question`) | a multiple-choice question is on screen in some session |
 | `claude.question.resolved` | `{id, resolution:"answered"\|"timeout"}` | the question is gone, however it was answered |
 | `claude.usage.update` | `Usage` (slim) | pushed once a minute, carrying only the device-rendered subset: no `subscription`, no `notes`, no `mcp`, first window only, top lists capped at 3. `claude.usage.get` returns the full reading |
-| `claude.daemon.status` | `{connected:bool}` | synthesized by relays on daemon link up/down — never sent by the daemon itself |
+| `claude.daemon.status` | `{connected:bool}` | synthesized by relays on daemon link up/down — never sent by the daemon itself, and only the emulator's bridge sends it at all: on hardware neither nocturned nor the connector emits it, so a client that waits to be told will wait forever. Clients decide for themselves instead — any `claude.*` frame means the daemon is alive, and after ~40s of silence (the 30s snapshot heartbeat plus slack) a `claude.ping` asks outright |
 
 ## Shapes
 

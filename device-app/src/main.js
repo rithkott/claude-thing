@@ -15,6 +15,7 @@ import {
   questionsOf, currentQuestion, rowCount, startWalk, pressOptionAt, pressReviewAt, backStepAt,
 } from './answering.js';
 import { inflight } from './inflight.js';
+import { createLink } from './link.js';
 
 var app = document.getElementById('app');
 var banner = document.getElementById('banner');
@@ -931,14 +932,36 @@ ws.on('claude.queue.sync', function (d) {
 ws.on('claude.permission.resolved', function (p) { onResolved(p.requestId, p.resolution); });
 ws.on('claude.question.resolved', function (q) { onResolved(q.id, q.resolution); });
 
-ws.on('claude.daemon.status', function (s) {
-  var was = store.get().daemonConnected;
-  store.update({ daemonConnected: !!s.connected });
-  // The socket to the connector survives a daemon restart, so this is the only
-  // signal that the queue on the other side is a new one. Re-sync, or the asks
-  // from before the restart stay on screen with nothing able to resolve them.
-  if (!was && s.connected) syncQueue(false);
+// ---- is the daemon there? ---------------------------------------------------
+// See link.js: the banner is driven by what the daemon has actually said
+// lately, not by how the first request of the session happened to go.
+var LINK_TICK_MS = 10000;
+
+var link = createLink({
+  ping: function () {
+    return ws.request('claude.ping', {}).catch(function (e) {
+      // A daemon too old to know the method still answered, which is the only
+      // thing being asked. Every other failure is the link not delivering.
+      if (/Unknown method/i.test(String(e && e.message))) return {};
+      throw e;
+    });
+  },
+  onChange: function (connected, was) {
+    store.update({ daemonConnected: connected });
+    // A daemon that just came back is a daemon that has forgotten the asks it
+    // sent and the session it was told to watch — refill from the live one, or
+    // the screen keeps showing cards nothing can resolve. Not on the first
+    // answer of the session: boot has just done exactly this.
+    if (connected && was === false) hydrate(false);
+  },
 });
+
+ws.onTraffic(link.seen);
+setInterval(function () { link.tick(); }, LINK_TICK_MS);
+
+// Only the emulator's bridge sends this; hardware has no equivalent, which is
+// why the link asks for itself rather than waiting to be told.
+ws.on('claude.daemon.status', function (s) { link.report(!!s.connected); });
 
 // ---- bluetooth events -------------------------------------------------------
 
@@ -1017,20 +1040,26 @@ function syncQueue(jumpIfIdle) {
 // for four. The full grid follows as an async snapshot push, which chunks fine.
 var BOOT_SESSION_LIMIT = 4;
 
-ws.onOpen(function () {
+// Everything this screen needs the daemon to tell it up front. Run at boot and
+// again whenever the daemon comes back: a daemon that restarted has forgotten
+// every ask it sent and every watch it was given, and a boot that happened
+// while it was down got none of this at all.
+function hydrate(jumpIfIdle) {
   ws.request('claude.sessions.list', { limit: BOOT_SESSION_LIMIT }).then(function (snap) {
-    store.update({ daemonConnected: true });
     store.applySnapshot(snap);
-  }).catch(function () {
-    store.update({ daemonConnected: false });
-  });
+  }).catch(function () {});
 
-  syncQueue(true);
+  syncQueue(jumpIfIdle);
   scheduleWatch(true);
 
   ws.request('claude.usage.get', { slim: 1 }).then(function (u) {
     store.update({ usage: u });
   }).catch(function () {});
+}
+
+ws.onOpen(function () {
+  hydrate(true);
+  link.tick();            // lastSeen is 0 at boot, so this asks outright
 });
 
 render();

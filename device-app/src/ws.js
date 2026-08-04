@@ -6,10 +6,20 @@
 import { unbool, observeProbe, shouldUnbool } from './numbers.js';
 
 var socket = null;
-var pending = {};            // id -> {resolve, reject, timer}
+var pending = {};            // id -> {resolve, reject, timer, method}
 var topicListeners = {};     // topic -> [fn]
 var openListeners = [];
+var trafficListeners = [];   // called for any claude.* frame the daemon sent
 var attempts = 0;
+
+// Everything on this socket except claude.* is nocturned answering locally —
+// only frames that came the whole way from the Mac say the daemon is alive.
+// claude.daemon.status is excluded: it is synthesized by the relay, and a
+// {connected:false} would otherwise announce itself as proof of life.
+function sawDaemon(what) {
+  if (what.indexOf('claude.') !== 0 || what === 'claude.daemon.status') return;
+  for (var i = 0; i < trafficListeners.length; i++) trafficListeners[i](what);
+}
 
 function uuid() {
   // no crypto.randomUUID on Chrome 69
@@ -36,6 +46,7 @@ function connect() {
     if (body && body.intProbe !== undefined) observeProbe(body.intProbe);
     if (shouldUnbool()) unbool(body);
     if (f.type === 'event' && f.topic) {
+      sawDaemon(f.topic);
       var fns = topicListeners[f.topic] || [];
       for (var i = 0; i < fns.length; i++) fns[i](f.data, f);
       return;
@@ -44,6 +55,10 @@ function connect() {
       var p = pending[f.id];
       delete pending[f.id];
       clearTimeout(p.timer);
+      // An error frame counts too when it carries an answer the daemon itself
+      // wrote (Unknown method, a rejected id). Only the relay's own "daemon
+      // unreachable" means nobody was home.
+      if (!/daemon unreachable/i.test(String(f.error || ''))) sawDaemon(p.method);
       if (f.type === 'response') p.resolve(f.result);
       else p.reject(new Error(f.error || 'request failed'));
     }
@@ -69,7 +84,7 @@ export function request(method, params, timeoutMs) {
       delete pending[id];
       reject(new Error('timeout: ' + method));
     }, timeoutMs || 10000);
-    pending[id] = { resolve: resolve, reject: reject, timer: timer };
+    pending[id] = { resolve: resolve, reject: reject, timer: timer, method: method };
     socket.send(JSON.stringify({ type: 'request', id: id, method: method, params: params || {} }));
   });
 }
@@ -81,6 +96,12 @@ export function on(topic, fn) {
 export function onOpen(fn) {
   openListeners.push(fn);
   if (socket && socket.readyState === WebSocket.OPEN) fn();
+}
+
+// Every claude.* frame the Mac answered, whoever asked for it. The link watch
+// (link.js) reads this as proof the daemon is alive.
+export function onTraffic(fn) {
+  trafficListeners.push(fn);
 }
 
 connect();
