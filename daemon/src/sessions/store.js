@@ -113,9 +113,11 @@ export function createStore() {
     });
     const cap = limit || SESSION_CAP;   // 0 = unbounded
     const list = (cap > 0 ? rows.slice(0, cap) : rows).map((r) => r.view);
+    // Stats count every session, not the capped slice — a limited response
+    // still has to report how much is really going on.
     const stats = {
-      active: list.filter((s) => s.state === 'busy').length,
-      attention: list.filter((s) => s.state === 'attention').length,
+      active: rows.filter((r) => r.view.state === 'busy').length,
+      attention: rows.filter((r) => r.view.state === 'attention').length,
     };
     // The device knows neither what time it is nor which timezone it is in: no
     // RTC battery, no NTP, no timezone data in the firmware. Both corrections

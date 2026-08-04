@@ -38,6 +38,14 @@ export const HOOK_TIMEOUT_S = 600;
 // many sessions exist. A client on a constrained transport can still ask for a
 // slice via claude.sessions.list {limit}.
 export const SESSION_CAP = 0;
+// The Bluetooth relay cannot split a *synchronous* response across its 2000-byte
+// chunks (carthing-knowledge/daemon.md), so a sessions.list response must fit
+// one chunk: 2000 minus ~160 of response envelope + snapshot fields, over a
+// worst-case ~355-byte SessionSummary (measured by chunk-fit.test.js), is four
+// sessions. Relay-role clients that forget to pass a limit get this cap instead
+// of a response that silently never arrives; the full grid follows as a chunked
+// async snapshot push.
+export const BT_SAFE_SESSION_LIMIT = 4;
 export const SNAPSHOT_DEBOUNCE_MS = 500;
 // Detail events are per-session and fire on every store write. A streaming
 // transcript writes several times a second, and every write used to go out as

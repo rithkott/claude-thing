@@ -317,3 +317,17 @@ test('a turn longer than the thinking TTL stays busy while hooks keep arriving',
   store.upsert('a', { thinking: true, lastActivityTs: Date.now() - 60 * ONE_SEC });
   assert.equal(stateOf(store, 'a'), 'busy', 'silence since the last hook is what counts');
 });
+
+test('a limited snapshot caps the list but stats count everything', () => {
+  const store = createStore();
+  for (let i = 0; i < 8; i++) store.touch(`s${i}`, { name: `proj${i}` });
+  store.touch('p', { name: 'asker', pendingPermission: true });
+
+  const snap = store.snapshot(5);
+  assert.equal(snap.sessions.length, 5, 'list capped at the limit');
+  assert.equal(snap.stats.active, 8, 'busy count covers sessions beyond the cap');
+  assert.equal(snap.stats.attention, 1, 'attention counted even when sliced out');
+
+  const full = store.snapshot();
+  assert.equal(full.sessions.length, 9, 'no limit = everything');
+});
