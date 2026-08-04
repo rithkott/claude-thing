@@ -6,6 +6,10 @@ Versioning is semver-shaped: **major** only when explicitly asked for, **minor**
 
 A row ships to the **dev** channel as `X.Y.Z-dev` the moment its PR merges. It becomes production `X.Y.Z` only when the `promote` workflow is run, so rows below the newest promoted version may exist as dev prereleases and nothing else.
 
+**The two branches carry different copies of this file, on purpose.** `dev` has the full ledger; `main` has production history only, and a promote brings the rows in between over along with the code they describe. `git diff main dev -- RELEASES.md` reads out the difference, which is exactly the set of unpromoted versions. Keep it that way: `release-meta.mjs` releases the highest row it can see, so a row for unshipped work sitting on `main` would number a hotfix against a version production has never run.
+
+A hotfix therefore numbers itself against production, not against `dev` — which is why 1.17.3 sits below versions that were released before it. Its change reaches `dev` under its own number too, so one fix can hold two rows: 1.17.3 is what production shipped, 1.23.1 is what dev shipped.
+
 | Version | Date | Type | Branch | Summary |
 |---------|------|------|--------|---------|
 | 1.0.0 | 2026-07-30 | initial | initial | Car Thing as a Claude Code monitor |
@@ -51,6 +55,7 @@ A row ships to the **dev** channel as `X.Y.Z-dev` the moment its PR merges. It b
 | 1.17.0 | 2026-08-02 | feature | multi-question | A multi-question AskUserQuestion is one card you walk, edit and submit — multiSelect answerable at last, and every tap on the device works again |
 | 1.17.1 | 2026-08-02 | fix | answer-serialization | Answers given in quick succession are typed one at a time, so keystrokes can no longer interleave into the wrong session's terminal |
 | 1.17.2 | 2026-08-02 | fix | semver-ledger | The ledger is semver end to end — every past release renumbered to match its tag, and the release process documents the bump rules |
+| 1.17.3 | 2026-08-04 | fix | usage-limits-carryover | Hotfix, straight to production: a `/usage` run that prints no limit lines is a reading, not a parse failure, so the usage screen stops freezing on the last poll that parsed — the same change dev shipped as 1.23.1 |
 | 1.18.0 | 2026-08-03 | feature | dev-channel | Every merge auto-publishes an X.Y.Z-dev prerelease from CI; production is a separate promote step, so features reach dev without touching what users install |
 | 1.18.1 | 2026-08-03 | fix | preview-question-keys | A question whose options carry previews is answerable from the device again — its dialog reads digits as cursor moves, so answers are walked with Down and taken with Return |
 | 1.18.2 | 2026-08-03 | fix | dmg-asset-name | The release DMG is named Nocturne-claude-<connector version>.dmg again, so it is distinguishable from a stock Nocturne download on the release page |
