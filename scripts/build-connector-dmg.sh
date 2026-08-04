@@ -10,8 +10,9 @@ set -euo pipefail
 # Usage:
 #   scripts/build-connector-dmg.sh [--connector <path>] [--keep] [-- <dmg args>]
 #
-#   --connector <path>  an existing nocturne-connector checkout (default: clone
-#                       https://github.com/usenocturne/nocturne-connector)
+#   --connector <path>  an existing nocturne-connector checkout (default: fetch
+#                       https://github.com/usenocturne/nocturne-connector at
+#                       $CONNECTOR_REF, the pinned commit below)
 #   --keep              don't delete a previous build/connector copy first
 #   everything after -- is passed to the connector's own
 #   scripts/build-macos-dmg.sh (default: --local, an ad-hoc signed DMG; use
@@ -20,6 +21,8 @@ set -euo pipefail
 # Requires: macOS, Xcode, python3. The DMG lands in dist/.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The upstream commit the connector is built from — see the clone below.
+CONNECTOR_REF="${CONNECTOR_REF:-41f4d048912d3e9a7e664ad7b9a2526c323f2c55}"
 CONNECTOR_SRC=""
 KEEP=0
 DMG_ARGS=(--local)
@@ -62,8 +65,17 @@ if [ "$KEEP" -eq 0 ] || [ ! -d "$BUILD_DIR" ]; then
     cp -RX "$CONNECTOR_SRC" "$BUILD_DIR"
     rm -rf "${BUILD_DIR}/.git" "${BUILD_DIR}/build" "${BUILD_DIR}/output" "${BUILD_DIR}/cache"
   else
-    echo ">> cloning usenocturne/nocturne-connector"
-    git clone --depth 1 https://github.com/usenocturne/nocturne-connector.git "$BUILD_DIR"
+    echo ">> cloning usenocturne/nocturne-connector at ${CONNECTOR_REF}"
+    # Fetched by commit, not by branch. Upstream force-pushed main from
+    # 41f4d04 to its protocol-v2 line on 2026-08-04 and the macOS app is not
+    # on that line at all, so cloning the default branch gets a tree with no
+    # macos/Nocturne in it. This is the last commit that carries the app —
+    # the one every release so far was built from. Override with
+    # CONNECTOR_REF=<sha|branch> once upstream has a macOS app again.
+    git init --quiet "$BUILD_DIR"
+    git -C "$BUILD_DIR" remote add origin https://github.com/usenocturne/nocturne-connector.git
+    git -C "$BUILD_DIR" fetch --quiet --depth 1 origin "$CONNECTOR_REF"
+    git -C "$BUILD_DIR" checkout --quiet --detach FETCH_HEAD
   fi
   # Belt and braces: a clone can still pick up quarantine/provenance attributes
   # depending on how the machine is configured.
