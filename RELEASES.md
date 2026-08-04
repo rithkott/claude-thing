@@ -59,3 +59,4 @@ A row ships to the **dev** channel as `X.Y.Z-dev` the moment its PR merges. It b
 | 1.20.0 | 2026-08-03 | feature | queue-idle-exit | An empty queue hands the screen back to the session list after a minute, so the device never sits on a dead end — every other page stays put |
 | 1.20.1 | 2026-08-03 | fix | boot-list-chunk-fit | Boot session list fits one Bluetooth chunk: device asks for 4, the daemon caps relay roles that forget and follows up with the full grid as an async push |
 | 1.21.0 | 2026-08-03 | feature | session-watch | The device tells the daemon which session it is looking at, and only that detail stream crosses the link — unwatched sessions no longer repaint the grid |
+| 1.22.0 | 2026-08-03 | feature | host-ask-flags-usage-slim | The daemon sends the device only what it draws: usage events slim to the rendered subset, and permissions arrive pre-classified destructive against the full command instead of the truncated summary |
