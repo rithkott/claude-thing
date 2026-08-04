@@ -60,9 +60,68 @@ test('keeps the subscription line and stamps an update label', () => {
   assert.match(u.updatedLabel, /from claude \/usage/);
 });
 
-test('returns null when there are no limits to show', () => {
+test('returns null only when the output is not a /usage render at all', () => {
   assert.equal(parseUsage(''), null);
   assert.equal(parseUsage('some unrelated error text'), null);
+});
+
+// Verbatim, from a machine whose weekly window had just rolled over: every
+// limit line gone, the breakdown untouched. `claude -p` reads the utilization
+// cache but never refetches it, so this is what every poll returns until an
+// interactive session refreshes it.
+const NO_LIMITS = `You are currently using your subscription to power your Claude Code usage
+
+What's contributing to your limits usage?
+Approximate, based on local sessions on this machine — does not include other devices or claude.ai.
+
+Last 24h · 1,225 requests · 20 sessions
+  68% of your usage came from subagent-heavy sessions
+  Top skills: /deploy-to-dev 6%
+`;
+
+test('a render with no limit lines is a reading, not a parse failure', () => {
+  const u = parseUsage(NO_LIMITS, 5);
+  assert.ok(u, 'the run succeeded and told us something — it must not be discarded');
+  assert.deepEqual(u.limits, []);
+  assert.equal(u.limitsTs, 0, 'no limits were read, so none are dated');
+  assert.equal(u.windows[0].requests, 1225, 'the breakdown is still fresh and kept');
+});
+
+test('a fresh reading dates its own limits', () => {
+  assert.equal(parseUsage(SAMPLE, 7).limitsTs, 7);
+});
+
+test('limits survive a reading that printed none, dated when they were read', () => {
+  const prev = parseUsage(SAMPLE, Date.parse('2026-08-04T10:56:00'));
+  const out = reconcileUsage(prev, parseUsage(NO_LIMITS, Date.parse('2026-08-04T17:15:00')));
+
+  assert.deepEqual(out.limits.map((l) => l.used), [0.11, 0.21, 0.3], 'the last real limits stand');
+  assert.equal(out.stale, true);
+  assert.equal(out.updatedLabel, 'limits 10:56 · from claude /usage', 'dated honestly, not as of now');
+  assert.equal(out.windows[0].requests, 1225, 'the fresh breakdown still comes from the new reading');
+  assert.equal(out.updatedTs, Date.parse('2026-08-04T17:15:00'), 'the reading itself is current');
+});
+
+test('a carried-over limit does not age into looking fresh', () => {
+  const first = parseUsage(SAMPLE, Date.parse('2026-08-04T10:56:00'));
+  let held = reconcileUsage(first, parseUsage(NO_LIMITS, Date.parse('2026-08-04T17:15:00')));
+  held = reconcileUsage(held, parseUsage(NO_LIMITS, Date.parse('2026-08-04T19:30:00')));
+  assert.equal(held.limitsTs, Date.parse('2026-08-04T10:56:00'), 'still dated by the last real read');
+  assert.equal(held.updatedLabel, 'limits 10:56 · from claude /usage');
+});
+
+test('limits coming back clears the carry-over', () => {
+  const held = reconcileUsage(parseUsage(SAMPLE, 1), parseUsage(NO_LIMITS, 2));
+  const back = reconcileUsage(held, parseUsage(SAMPLE, 3));
+  assert.equal(back.limitsTs, 3);
+  assert.equal(back.stale, undefined);
+  assert.match(back.updatedLabel, /^updated /);
+});
+
+test('with nothing to carry, a limitless reading passes straight through', () => {
+  const out = reconcileUsage(null, parseUsage(NO_LIMITS, 2));
+  assert.deepEqual(out.limits, []);
+  assert.equal(out.stale, undefined, 'nothing was held, so nothing is being passed off as current');
 });
 
 test('survives a limit line with no reset clause', () => {
