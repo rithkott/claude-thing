@@ -109,15 +109,33 @@ export function parseUsage(text, now = Date.now()) {
     }
   }
 
-  if (!limits.length) return null;
+  // A run can succeed and print no limit lines at all. Claude Code renders a
+  // limit only while its reset time is still ahead, and the figures come from
+  // `cachedUsageUtilization` in ~/.claude.json, which a `claude -p` run reads
+  // but never refetches. So once a window rolls over, every poll comes back
+  // with the breakdown intact and not one "Current session:" line, until an
+  // interactive session refreshes the cache. Observed live for seven hours.
+  //
+  // That is a real reading of a real state — the limits are unavailable — not a
+  // parse failure, and treating it as one froze the screen on the last reading
+  // that happened to parse. What tells the two apart is whether /usage rendered
+  // anything we recognise: a window line or the subscription sentence.
+  if (!limits.length && !windows.length && !subscription) return null;
 
   return {
     updatedTs: now,
-    updatedLabel: 'updated ' + new Date(now).toTimeString().slice(0, 5) + ' · from claude /usage',
+    // When the limits were last actually read, as opposed to when this reading
+    // was taken. They diverge as soon as one is carried over.
+    limitsTs: limits.length ? now : 0,
+    updatedLabel: 'updated ' + hhmm(now) + ' · from claude /usage',
     subscription,
     limits,
     windows,
   };
+}
+
+function hhmm(ts) {
+  return new Date(ts).toTimeString().slice(0, 5);
 }
 
 // The device renders a fixed subset of a reading: every limit bar, the first
@@ -170,6 +188,25 @@ function sameWindow(prev, next) {
 
 export function reconcileUsage(prev, next) {
   if (!next || !Array.isArray(next.limits)) return next;
+
+  // Silence about the limits is not a report that they are gone. A reading that
+  // printed none is the expired-cache shape above: its windows are fresh and
+  // worth taking, but the last limits actually read still stand, dated by when
+  // they were read rather than by now. Held indefinitely — a figure the device
+  // labels as hours old beats a screen that stops moving altogether.
+  if (!next.limits.length) {
+    const held = (prev && prev.limits) || [];
+    if (!held.length) return next;
+    const limitsTs = (prev && (prev.limitsTs || prev.updatedTs)) || next.updatedTs;
+    return {
+      ...next,
+      limits: held,
+      limitsTs,
+      stale: true,
+      updatedLabel: 'limits ' + hhmm(limitsTs) + ' · from claude /usage',
+    };
+  }
+
   const before = new Map(((prev && prev.limits) || []).map((l) => [l.key, l]));
   const limits = next.limits.map((l) => {
     const p = before.get(l.key);
@@ -186,7 +223,10 @@ export function reconcileUsage(prev, next) {
 function loadPersisted() {
   const saved = readState(STATE_NAME);
   if (!saved || !Array.isArray(saved.limits) || !saved.limits.length) return null;
-  const at = saved.updatedTs ? new Date(saved.updatedTs).toTimeString().slice(0, 5) : '';
+  // Dated by when the limits were read, which after a carry-over is older than
+  // the reading that saved them.
+  const ts = saved.limitsTs || saved.updatedTs;
+  const at = ts ? hhmm(ts) : '';
   return {
     ...saved,
     stale: true,
@@ -259,7 +299,12 @@ export function createUsage({ emit }) {
         const parsed = parseUsage(out.text);
         if (parsed) {
           latest = reconcileUsage(latest, parsed);
-          writeState(STATE_NAME, latest);
+          // Nothing to carry and nothing read: say which of the two it is,
+          // rather than leaving the screen on "READING USAGE…" forever. Only a
+          // reading with limits is persisted — a limitless one must never
+          // overwrite the saved figures a restart would otherwise recover.
+          if (latest.limits.length) writeState(STATE_NAME, latest);
+          else latest = { ...latest, stale: true, error: 'claude /usage printed no limits' };
         } else {
           latest = { ...(latest || {}), stale: true, error: 'could not parse /usage output' };
         }
