@@ -1,14 +1,15 @@
 name: release
 
-# Every merged PR publishes a build. Features and fixes go to the dev channel
-# as an X.Y.Z-dev prerelease; only a hotfix/* branch (or an explicit dispatch)
-# cuts a production release. Promoting a dev build to production is a separate
-# workflow — see promote.yml.
+# Every merged PR publishes a build, and the branch it merged into picks the
+# channel: `dev` publishes an X.Y.Z-dev prerelease, `main` (a hotfix/* PR) cuts
+# a production release. Ordinary promotion to production does not run here at
+# all — it re-publishes an existing dev build and fast-forwards main, see
+# promote.yml.
 
 on:
   pull_request:
     types: [closed]
-    branches: [main]
+    branches: [dev, main]
   workflow_dispatch:
     inputs:
       channel:
@@ -58,21 +59,22 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           DISPATCH_CHANNEL: ${{ inputs.channel }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          HAS_PROD_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'prod') }}
         run: |
+          # The target branch is the channel: dev is the prerelease line, main
+          # is production. A hotfix is simply a PR opened against main.
           if [ "$EVENT" = workflow_dispatch ]; then
             channel="$DISPATCH_CHANNEL"
-          elif [ "$HAS_PROD_LABEL" = true ]; then
-            channel=prod
           else
-            case "$HEAD_REF" in
-              hotfix/*) channel=prod ;;
-              *)        channel=dev ;;
+            case "$BASE_REF" in
+              main) channel=prod ;;
+              dev)  channel=dev ;;
+              *)    echo "ERROR: no channel for base branch $BASE_REF" >&2; exit 1 ;;
             esac
           fi
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
-          echo "publishing to the $channel channel (branch: ${HEAD_REF:-n/a})"
+          echo "publishing to the $channel channel (${HEAD_REF:-n/a} -> ${BASE_REF:-n/a})"
 
       - id: meta
         run: node scripts/release-meta.mjs --channel "${{ steps.channel.outputs.channel }}" >> "$GITHUB_OUTPUT"
@@ -243,3 +245,9 @@ jobs:
 
           echo "published $TAG ($CHANNEL)" >> "$GITHUB_STEP_SUMMARY"
           gh release view "$TAG" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"
+
+          # A hotfix lands on main only. Until it is merged back, dev is missing
+          # the fix and the next promote refuses to fast-forward.
+          if [ "$CHANNEL" = prod ]; then
+            echo '**Back-merge required:** `git checkout dev && git merge origin/main && git push`' >> "$GITHUB_STEP_SUMMARY"
+          fi

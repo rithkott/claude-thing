@@ -3,6 +3,10 @@ name: promote
 # Promotes a dev build to production. Nothing is rebuilt: the exact assets that
 # shipped as X.Y.Z-dev are re-published under X.Y.Z at the same commit, so the
 # thing tested on dev is the thing users install.
+#
+# This is also the only thing that moves `main`. Production is a branch, not
+# just a tag: main fast-forwards to the promoted commit, so main is always the
+# tree users are running and everything past it lives on dev.
 
 on:
   workflow_dispatch:
@@ -23,8 +27,11 @@ jobs:
   promote:
     runs-on: ubuntu-latest
     steps:
+      # dev, not the dispatch ref: the ledger and the release scripts a promote
+      # needs are the promoted commit's, and main is by definition behind it.
       - uses: actions/checkout@v4
         with:
+          ref: dev
           fetch-depth: 0
 
       - name: resolve the dev build
@@ -55,6 +62,17 @@ jobs:
           git fetch --tags --quiet
           sha="$(git rev-parse "${dev}^{commit}")"
 
+          # Promotion moves main forward, so the build has to sit on the line
+          # main follows. A dev tag off some other branch is not promotable.
+          git merge-base --is-ancestor "$sha" origin/dev \
+            || { echo "ERROR: $dev ($sha) is not on the dev branch" >&2; exit 1; }
+          git merge-base --is-ancestor origin/main "$sha" \
+            || { echo "ERROR: main is not an ancestor of $dev — merge main into dev, then promote." >&2; exit 1; }
+
+          # Everything downstream reads the promoted commit's tree: its ledger
+          # row, its release-meta script, its assets.
+          git checkout --quiet --detach "$sha"
+
           grep -qE "^\| *${stable//./\\.} *\|" RELEASES.md \
             || { echo "ERROR: $stable has no row in RELEASES.md" >&2; exit 1; }
 
@@ -82,6 +100,23 @@ jobs:
           done
           ls -la assets
 
+      # Before the release exists, so a published production tag is never left
+      # pointing past the production branch.
+      - name: fast-forward main
+        env:
+          SHA: ${{ steps.resolve.outputs.sha }}
+          STABLE: ${{ steps.resolve.outputs.stable }}
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse origin/main)" = "$SHA" ]; then
+            echo "main is already at $SHA"
+          else
+            # No --force: the server rejects anything that is not a
+            # fast-forward, which is the guarantee we want.
+            git push origin "$SHA:refs/heads/main"
+            echo "main -> $SHA ($STABLE)"
+          fi
+
       - name: publish the production release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -101,7 +136,7 @@ jobs:
           gh release create "$STABLE" "${flags[@]}" assets/*
 
           gh release view "$STABLE" --json body --jq .body > body.md
-          printf 'Production build, promoted from `%s` (same commit, same binaries).\n\n---\n\n' "$DEV" \
+          printf 'Production build, promoted from `%s` (same commit, same binaries). `main` is at this commit.\n\n---\n\n' "$DEV" \
             | cat - body.md > new-body.md
           gh release edit "$STABLE" --notes-file new-body.md
 
@@ -114,6 +149,6 @@ jobs:
           fi
 
           {
-            echo "promoted **$DEV** to **$STABLE**"
+            echo "promoted **$DEV** to **$STABLE**, \`main\` fast-forwarded to \`${SHA:0:7}\`"
             gh release view "$STABLE" --json url --jq .url
           } >> "$GITHUB_STEP_SUMMARY"
