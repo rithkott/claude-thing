@@ -58,3 +58,4 @@ A row ships to the **dev** channel as `X.Y.Z-dev` the moment its PR merges. It b
 | 1.19.0 | 2026-08-03 | feature | answer-progress | Answering on the device shows the answer on its way — a ring drains over the undo window, then spins while the Mac types it, so the wait before it lands in the terminal no longer looks like nothing happened |
 | 1.20.0 | 2026-08-03 | feature | queue-idle-exit | An empty queue hands the screen back to the session list after a minute, so the device never sits on a dead end — every other page stays put |
 | 1.20.1 | 2026-08-03 | fix | boot-list-chunk-fit | Boot session list fits one Bluetooth chunk: device asks for 4, the daemon caps relay roles that forget and follows up with the full grid as an async push |
+| 1.21.0 | 2026-08-03 | feature | session-watch | The device tells the daemon which session it is looking at, and only that detail stream crosses the link — unwatched sessions no longer repaint the grid |
