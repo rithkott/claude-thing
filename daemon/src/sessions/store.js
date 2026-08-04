@@ -133,6 +133,14 @@ export function createStore() {
       stats,
       serverNowMs: Date.now(),
       tzOffsetMin: new Date().getTimezoneOffset(),
+      // Wire-hygiene probe, not data — clients must ignore its value except as
+      // a transport check. The Mac connector's MsgPack packer used to coerce
+      // NSNumber 0/1 to booleans; a device that receives intProbe === true
+      // knows the link still coerces and keeps repairing frames (unbool), one
+      // that receives 1 knows the link is clean and skips the walk. Rides the
+      // snapshot because that is both the first frame a booting device sees
+      // (sessions.list response) and a steady heartbeat thereafter.
+      intProbe: 1,
     };
   }
 

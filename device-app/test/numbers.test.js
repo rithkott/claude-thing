@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { unbool } from '../src/numbers.js';
+import { unbool, observeProbe, shouldUnbool, resetProbe } from '../src/numbers.js';
 import { renderAmbient } from '../src/screens/ambient.js';
 
 test('a coerced snapshot renders counts, not booleans', () => {
@@ -55,4 +55,41 @@ test('unbool tolerates the frames that carry nothing', () => {
   assert.equal(unbool(null), null);
   assert.equal(unbool('busy'), 'busy');
   assert.deepEqual(unbool({ connected: true }), { connected: true });
+});
+
+// ---- the intProbe latch -----------------------------------------------------
+
+test('with no probe ever seen, the walk stays on (old daemon)', () => {
+  resetProbe();
+  assert.equal(shouldUnbool(), true);
+});
+
+test('a coerced probe (true) keeps the walk on', () => {
+  resetProbe();
+  observeProbe(true);
+  assert.equal(shouldUnbool(), true);
+});
+
+test('a clean probe (1) turns the walk off', () => {
+  resetProbe();
+  observeProbe(1);
+  assert.equal(shouldUnbool(), false);
+});
+
+test('a DMG downgrade re-arms the walk within one snapshot', () => {
+  resetProbe();
+  observeProbe(1);
+  assert.equal(shouldUnbool(), false, 'clean link, walk off');
+  observeProbe(true);
+  assert.equal(shouldUnbool(), true, 'coercing link again, walk back on');
+});
+
+test('an absent or alien probe value changes nothing', () => {
+  resetProbe();
+  observeProbe(undefined);
+  observeProbe('1');
+  assert.equal(shouldUnbool(), true, 'unknown stays unknown');
+  observeProbe(1);
+  observeProbe(undefined);
+  assert.equal(shouldUnbool(), false, 'a known-clean link is not forgotten');
 });

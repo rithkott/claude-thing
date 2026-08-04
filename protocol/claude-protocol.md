@@ -40,7 +40,7 @@ connected clients.
 | Method | Params | Result |
 |---|---|---|
 | `claude.ping` | `{}` | `{daemonVersion, sessions:<n>}` |
-| `claude.sessions.list` | `{limit?}` | `{sessions:[SessionSummary], stats:Stats, serverNowMs, tzOffsetMin}` — unbounded unless `limit` given, except for `connector`/`emulator` roles, which are capped at 4 (`BT_SAFE_SESSION_LIMIT`) even without `limit`: their synchronous responses must fit one Bluetooth chunk. When the cap trims the list, the daemon follows up with a full `claude.sessions.update` push, which chunks fine. `stats` always counts every session, not the returned slice |
+| `claude.sessions.list` | `{limit?}` | `{sessions:[SessionSummary], stats:Stats, serverNowMs, tzOffsetMin, intProbe}` — unbounded unless `limit` given, except for `connector`/`emulator` roles, which are capped at 4 (`BT_SAFE_SESSION_LIMIT`) even without `limit`: their synchronous responses must fit one Bluetooth chunk. When the cap trims the list, the daemon follows up with a full `claude.sessions.update` push, which chunks fine. `stats` always counts every session, not the returned slice |
 | `claude.session.get` | `{id}` | `SessionDetail` (error `"unknown session"` if gone) |
 | `claude.session.watch` | `{id: string\|null}` | `{ok:true}` — this socket now receives `claude.session.update` only for that session (`null` = none). Opt-in per socket: a client that never sends it gets every detail, as before. Handled inside the hub (it is per-socket state, which registered methods can't see) — `claude.`-prefixed anyway, because the relays forward only that prefix. Watch dies with the socket; a restarted daemon reverts to broadcast-all until the client re-asserts (the device re-sends on `claude.queue.sync`, which fires on every client hello). Known limit: the connector multiplexes all paired devices onto one socket, so the last watch wins |
 | `claude.permission.answer` | `{requestId, decision:"allow"\|"deny"}` | `{accepted:bool}` — idempotent; `false` when already resolved |
@@ -53,7 +53,7 @@ connected clients.
 
 | Topic | Data | Notes |
 |---|---|---|
-| `claude.sessions.update` | `{sessions:[SessionSummary], stats:Stats, serverNowMs, tzOffsetMin}` | full idempotent snapshot of ALL sessions, debounced 500 ms. The device's clock is wrong in both axes — no RTC battery, no NTP, no timezone data — so it takes both from here: `serverNowMs` = the Mac's `Date.now()`, the epoch every device-side duration and countdown is measured against; `tzOffsetMin` = the Mac's `Date.getTimezoneOffset()`, which renders it as local time. Not the frame's `server_timestamp_ms` — nocturned re-stamps relayed frames with the device clock |
+| `claude.sessions.update` | `{sessions:[SessionSummary], stats:Stats, serverNowMs, tzOffsetMin, intProbe}` | full idempotent snapshot of ALL sessions, debounced 500 ms. The device's clock is wrong in both axes — no RTC battery, no NTP, no timezone data — so it takes both from here: `serverNowMs` = the Mac's `Date.now()`, the epoch every device-side duration and countdown is measured against; `tzOffsetMin` = the Mac's `Date.getTimezoneOffset()`, which renders it as local time. Not the frame's `server_timestamp_ms` — nocturned re-stamps relayed frames with the device clock |
 | `claude.session.update` | `SessionDetail` | pushed on change for any live session — unless the receiving socket narrowed itself with `claude.session.watch`, in which case only the watched session's details arrive. The only topic watch ever filters |
 | `claude.permission.request` | `{requestId, sessionId, tool, summary, intent, createdTs, timeoutMs, destructive}` | timeoutMs = 55000; `intent` = "you asked: …" from the session's last prompt, "" when unknown; `destructive` = classified daemon-side against the full command (the device's own regex only ever saw the 200-char summary) — clients fall back to their regex when the field is absent |
 | `claude.permission.resolved` | `{requestId, resolution:"allow"\|"deny"\|"timeout"}` | closes prompt everywhere; terminal-answered too |
@@ -92,6 +92,13 @@ SessionSummary = {
 // cannot, so a constrained client should pass `limit` on claude.sessions.list
 // and rely on the event stream for the full set. The daemon also enforces this
 // for relay roles that forget: see claude.sessions.list above.
+//
+// intProbe is wire hygiene, not data: the daemon always sends the integer 1,
+// and clients must ignore its value except as a transport check. The Mac
+// connector's MsgPack packer historically coerced NSNumber 0/1 to booleans; a
+// client that receives intProbe === true knows the link still coerces and
+// should repair numeric fields (the device's unbool walk), one that receives
+// 1 knows the link is clean and can skip the repair.
 
 SessionDetail = SessionSummary & {
   contextTokens: number, // what the newest turn sent — the raw numerator
