@@ -3,7 +3,7 @@
 // every client — filter by our own pending ids), exponential-backoff
 // reconnect. This app never sends reset_boot_counter — the boot UI owns that.
 
-import { unbool } from './numbers.js';
+import { unbool, observeProbe, shouldUnbool } from './numbers.js';
 
 var socket = null;
 var pending = {};            // id -> {resolve, reject, timer}
@@ -30,7 +30,11 @@ function connect() {
   socket.onmessage = function (m) {
     var f;
     try { f = JSON.parse(m.data); } catch (e) { return; }
-    unbool(f.type === 'response' ? f.result : f.data);
+    // Walk every frame only while the link is known (or suspected) to coerce
+    // ints — snapshots carry an intProbe that says either way. See numbers.js.
+    var body = f.type === 'response' ? f.result : f.data;
+    if (body && body.intProbe !== undefined) observeProbe(body.intProbe);
+    if (shouldUnbool()) unbool(body);
     if (f.type === 'event' && f.topic) {
       var fns = topicListeners[f.topic] || [];
       for (var i = 0; i < fns.length; i++) fns[i](f.data, f);

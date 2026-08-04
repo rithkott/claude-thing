@@ -331,3 +331,9 @@ test('a limited snapshot caps the list but stats count everything', () => {
   const full = store.snapshot();
   assert.equal(full.sessions.length, 9, 'no limit = everything');
 });
+
+test('every snapshot carries the integer intProbe', () => {
+  const store = createStore();
+  store.touch('a', { name: 'proj' });
+  assert.equal(store.snapshot().intProbe, 1, 'strictly the integer 1 — its corruption is the signal');
+});

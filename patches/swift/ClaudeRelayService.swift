@@ -94,6 +94,27 @@ final class ClaudeRelayService: ObservableObject {
         }
     }
 
+    /// RPCValueBridge.pack, minus the Darwin trap: JSONSerialization numbers
+    /// are NSNumber, and an NSNumber holding 0 or 1 succeeds `as Bool` — so
+    /// upstream wrap()'s Bool case swallows every small count before its
+    /// (correct) NSNumber arm can run, and "1 session" crosses Bluetooth as
+    /// true. Test CFBoolean explicitly, FIRST, then number-ness. Only the
+    /// claude.* paths route through here; spotify.* packing is untouched.
+    nonisolated static func packJSON(_ value: Any?) -> MessagePackValue {
+        guard let value, !(value is NSNull) else { return .nilValue }
+        switch value {
+        case let n as NSNumber:
+            if CFGetTypeID(n) == CFBooleanGetTypeID() { return .bool(n.boolValue) }
+            if CFNumberIsFloatType(n) { return .double(n.doubleValue) }
+            return .int(n.int64Value)
+        case let s as String: return .string(s)
+        case let arr as [Any]: return .array(arr.map { packJSON($0) })
+        case let dict as [String: Any]:
+            return .map(dict.map { (.string($0.key), packJSON($0.value)) })
+        default: return RPCValueBridge.pack(value)
+        }
+    }
+
     private func send(_ object: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: object),
               let text = String(data: data, encoding: .utf8) else { return }

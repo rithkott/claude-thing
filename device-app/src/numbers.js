@@ -27,6 +27,27 @@ var NUMERIC = {
   updatedTs: true, used: true, requests: true, sessions: true, pct: true,
 };
 
+// The daemon stamps `intProbe: 1` on every snapshot. The connector's coercion
+// is exactly what corrupts it: a probe arriving as `true` proves the link
+// still coerces, a probe arriving as `1` proves it is clean and the walk can
+// be skipped. No NUMERIC entry for it — its corruption IS the signal. The
+// latch re-arms on every probe, so swapping the Mac app mid-session corrects
+// itself within one snapshot; with no probe ever seen (old daemon) the walk
+// stays on, which is today's behavior.
+var linkCoerces = null;   // null = unknown
+
+export function observeProbe(v) {
+  if (v === true) linkCoerces = true;
+  else if (v === 1) linkCoerces = false;
+}
+
+export function shouldUnbool() {
+  return linkCoerces !== false;
+}
+
+// Test-only: forget what the probe taught.
+export function resetProbe() { linkCoerces = null; }
+
 // Mutates in place — every caller hands over a freshly parsed frame.
 export function unbool(value) {
   if (!value || typeof value !== 'object') return value;

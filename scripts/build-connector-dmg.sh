@@ -147,10 +147,13 @@ patch(
     "        // every paired Car Thing, same path the spotify.* broadcasts take.\n"
     "        claudeRelay.onEvent = { [weak self] topic, data in\n"
     "            Task { @MainActor [weak self] in\n"
-    "                await self?.broadcastToDevices(topic: topic, data: RPCValueBridge.pack(data))\n"
+    "                await self?.broadcastToDevices(topic: topic, data: ClaudeRelayService.packJSON(data))\n"
     "            }\n"
     "        }\n",
-    "self.claudeRelay = claudeRelay",
+    # The packer is the marker: a --keep copy patched by an older script still
+    # says RPCValueBridge.pack here, misses this marker, and then hard-fails on
+    # the consumed anchor — instead of silently shipping the coercing packer.
+    "ClaudeRelayService.packJSON(data)",
 )
 patch(
     "Services/RPCManager.swift",
@@ -164,9 +167,9 @@ patch(
     "            }\n"
     '            if method.hasPrefix("claude.") {\n'
     "                let result = try await claudeRelay.call(method, params: RPCValueBridge.dictionary(params))\n"
-    "                return RPCValueBridge.pack(result)\n"
+    "                return ClaudeRelayService.packJSON(result)\n"
     "            }\n",
-    'method.hasPrefix("claude.")',
+    'ClaudeRelayService.packJSON(result)',
 )
 
 # 3. NocturneApp — construct, describe the link, start
