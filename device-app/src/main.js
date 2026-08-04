@@ -10,7 +10,7 @@ import { renderUsage } from './screens/usage.js';
 import { renderAmbient } from './screens/ambient.js';
 import * as mascot from './mascot.js';
 import { renderBluetooth, btMenuActions, renderBtPairing } from './screens/bluetooth.js';
-import { isDestructive } from './screens/helpers.js';
+import { isDestructive, watchTarget } from './screens/helpers.js';
 import {
   questionsOf, currentQuestion, rowCount, startWalk, pressOptionAt, pressReviewAt, backStepAt,
 } from './answering.js';
@@ -156,9 +156,48 @@ window.addEventListener('hashchange', function () {
   }
   render();
   armQueueIdleExit();
+  scheduleWatch();
 });
 store.subscribe(scheduleRender);
 store.subscribe(armQueueIdleExit);
+
+// ---- watched-session details ------------------------------------------------
+// The daemon broadcasts every session's detail stream; this screen reads one —
+// the open detail page's, or the grid cursor's. Telling the daemon which
+// (claude.session.watch) lets it keep the rest off the Bluetooth link. Trailing
+// debounce: the dial sweeps several tiles a second and each watch is a relay
+// round trip, so the target is read once the cursor settles. On a daemon too
+// old to know the method, one failed call latches the whole feature off.
+var WATCH_DEBOUNCE_MS = 250;
+var watchTimer = null;
+var sentWatch;              // last id sent; undefined = never sent
+var watchSupported = true;
+
+function scheduleWatch(force) {
+  if (!watchSupported) return;
+  if (force === true) sentWatch = undefined;
+  if (watchTimer) return;
+  watchTimer = setTimeout(function () {
+    watchTimer = null;
+    var r = route();
+    var target = watchTarget(r.name, r.arg, store.get());
+    if (target === sentWatch) return;
+    sentWatch = target;
+    ws.request('claude.session.watch', { id: target }).catch(function (e) {
+      if (/Unknown method/i.test(String(e && e.message))) watchSupported = false;
+      sentWatch = undefined;   // otherwise transient — retry on the next trigger
+    });
+    // The filter means this session's detail may not have flowed while it was
+    // unwatched; fetch once so the subline is fresh when the cursor lands.
+    if (target) {
+      ws.request('claude.session.get', { id: target }).then(function (d) {
+        store.applyDetail(d);
+      }).catch(function () {});
+    }
+  }, WATCH_DEBOUNCE_MS);
+}
+
+store.subscribe(function () { scheduleWatch(); });
 var EXPIRED_ASK_TTL_MS = 5 * 60 * 1000;
 setInterval(function () {
   store.sweepExpired(EXPIRED_ASK_TTL_MS);
@@ -880,7 +919,13 @@ function onResolved(id, resolution) {
 // what clears cards left behind by a daemon that restarted: on hardware the
 // device's own socket is to the connector and never dropped, so nothing else
 // tells this screen the queue it is showing belongs to a dead process.
-ws.on('claude.queue.sync', function (d) { store.reconcileAsks((d && d.asks) || []); });
+ws.on('claude.queue.sync', function (d) {
+  store.reconcileAsks((d && d.asks) || []);
+  // queue.sync fires on every client hello — on hardware, the one reliable
+  // sign the daemon restarted (the device's own socket is to the connector and
+  // never drops). A fresh daemon has no watch state; re-assert ours.
+  scheduleWatch(true);
+});
 
 ws.on('claude.permission.resolved', function (p) { onResolved(p.requestId, p.resolution); });
 ws.on('claude.question.resolved', function (q) { onResolved(q.id, q.resolution); });
@@ -980,6 +1025,7 @@ ws.onOpen(function () {
   });
 
   syncQueue(true);
+  scheduleWatch(true);
 
   ws.request('claude.usage.get', {}).then(function (u) {
     store.update({ usage: u });

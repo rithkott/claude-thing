@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { esc, fmtTokens, fmtDuration, stateLabel, modeLabel, effortLabel, isDestructive } from '../src/screens/helpers.js';
+import { esc, fmtTokens, fmtDuration, stateLabel, modeLabel, effortLabel, isDestructive, watchTarget } from '../src/screens/helpers.js';
 import { fmtClock, setTzOffset, setServerNow, now, resetClock } from '../src/clock.js';
 import { renderList } from '../src/screens/session-list.js';
 import { renderQueue } from '../src/screens/queue.js';
@@ -797,4 +797,26 @@ test('the prompt screen honours the same two-press contract', () => {
   const armed = renderAsk(baseState({ armed: { id: 'p1', expires: Date.now() + 4000 } }), rmrf, 0);
   assert.match(armed, /PRESS AGAIN/);
   assert.match(armed, /pbtn allow selected armed/);
+});
+
+// ---- watchTarget ------------------------------------------------------------
+
+test('watchTarget follows the open detail page', () => {
+  assert.equal(watchTarget('session', 'abc', baseState()), 'abc');
+});
+
+test('watchTarget follows the grid cursor on the list', () => {
+  const state = baseState({
+    sessions: [{ id: 'a' }, { id: 'b' }],
+    selectedIndex: 1,
+  });
+  assert.equal(watchTarget('list', null, state), 'b');
+  assert.equal(watchTarget('list', null, baseState()), null, 'empty grid watches nothing');
+});
+
+test('watchTarget is null on screens that render no detail', () => {
+  const state = baseState({ sessions: [{ id: 'a' }] });
+  for (const name of ['queue', 'ask', 'usage', 'ambient', 'bluetooth']) {
+    assert.equal(watchTarget(name, null, state), null, name);
+  }
 });
