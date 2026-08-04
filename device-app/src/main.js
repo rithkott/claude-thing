@@ -870,6 +870,7 @@ ws.on('claude.permission.request', function (p) {
     intent: p.intent || '',
     createdTs: p.createdTs,
     timeoutMs: p.timeoutMs,
+    destructive: p.destructive,
   });
 });
 
@@ -1027,7 +1028,7 @@ ws.onOpen(function () {
   syncQueue(true);
   scheduleWatch(true);
 
-  ws.request('claude.usage.get', {}).then(function (u) {
+  ws.request('claude.usage.get', { slim: 1 }).then(function (u) {
     store.update({ usage: u });
   }).catch(function () {});
 });

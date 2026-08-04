@@ -6,6 +6,14 @@ import crypto from 'node:crypto';
 import { PERMISSION_HOLD_MS } from './config.js';
 import { log } from './log.js';
 
+// A command you cannot take back must not cost the same gesture as "read a
+// file" — the device asks for a second press on anything flagged here. Kept
+// verbatim in sync with device-app/src/screens/helpers.js, which still runs it
+// as the fallback against old daemons. Classified HERE, against the full
+// command, because the device only ever sees the first 200 characters — a
+// --force past the truncation was invisible to its regex.
+const DESTRUCTIVE_RE = /\brm\s+-|--force\b|--hard\b|\bDROP\s|\bTRUNCATE\b|\bmkfs|\bdd\s+if=|\bchmod\s+777\b|curl[^|]*\|\s*(ba|z)?sh/i;
+
 export function createPermissionBridge({ emit, store, queue }) {
   const pending = new Map(); // requestId -> {res, timer, sessionId}
 
@@ -89,10 +97,13 @@ export function createPermissionBridge({ emit, store, queue }) {
     const summary = summarizeTool(tool, payload.tool_input);
     const intent = intentFor(sessionId);
     const createdTs = Date.now();
+    // Against the untruncated command when there is one, else the summary.
+    const salient = (payload.tool_input && payload.tool_input.command) || summary;
+    const destructive = DESTRUCTIVE_RE.test(String(salient || ''));
 
     const timer = setTimeout(() => finish(requestId, 'timeout', 'ask'), PERMISSION_HOLD_MS);
     timer.unref();
-    pending.set(requestId, { res, timer, sessionId, tool, summary, intent, createdTs });
+    pending.set(requestId, { res, timer, sessionId, tool, summary, intent, createdTs, destructive });
     res.on('close', () => {
       // hook side gave up (Claude Code timeout / session killed)
       if (pending.has(requestId)) {
@@ -103,7 +114,7 @@ export function createPermissionBridge({ emit, store, queue }) {
       }
     });
 
-    const permission = { requestId, tool, summary, intent, createdTs, timeoutMs: PERMISSION_HOLD_MS };
+    const permission = { requestId, tool, summary, intent, createdTs, timeoutMs: PERMISSION_HOLD_MS, destructive };
     if (sessionId) {
       store.touch(sessionId, {
         pendingPermission: true,
@@ -146,6 +157,7 @@ export function createPermissionBridge({ emit, store, queue }) {
       intent: p.intent || '',
       createdTs: p.createdTs,
       timeoutMs: PERMISSION_HOLD_MS,
+      destructive: !!p.destructive,
     })).sort((a, b) => a.createdTs - b.createdTs);
   }
 

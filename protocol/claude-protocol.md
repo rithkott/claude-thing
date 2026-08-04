@@ -47,7 +47,7 @@ connected clients.
 | `claude.queue.list` | `{}` | `{asks:[Ask]}` — everything waiting on a human, oldest first |
 | `claude.question.answer` | `{id, answers}` — `answers` is `number[][]`, one entry per question of the ask, each the option indices picked for it (`optionIndex` still accepted for a lone single-select question) | `{accepted, viaKeyboard, option, keys?, focused?, reason?}` (see below) |
 | `claude.session.focus` | `{id}` | `{focused, app?, exact?, reason?}` — raises that session's terminal window |
-| `claude.usage.get` | `{}` | `Usage` |
+| `claude.usage.get` | `{slim?}` | `Usage` — full reading by default; `{slim: 1}` returns the device-rendered subset (see the Usage shape), which also keeps this synchronous response inside one Bluetooth chunk |
 
 ## Events (daemon → everyone)
 
@@ -55,11 +55,11 @@ connected clients.
 |---|---|---|
 | `claude.sessions.update` | `{sessions:[SessionSummary], stats:Stats, serverNowMs, tzOffsetMin}` | full idempotent snapshot of ALL sessions, debounced 500 ms. The device's clock is wrong in both axes — no RTC battery, no NTP, no timezone data — so it takes both from here: `serverNowMs` = the Mac's `Date.now()`, the epoch every device-side duration and countdown is measured against; `tzOffsetMin` = the Mac's `Date.getTimezoneOffset()`, which renders it as local time. Not the frame's `server_timestamp_ms` — nocturned re-stamps relayed frames with the device clock |
 | `claude.session.update` | `SessionDetail` | pushed on change for any live session — unless the receiving socket narrowed itself with `claude.session.watch`, in which case only the watched session's details arrive. The only topic watch ever filters |
-| `claude.permission.request` | `{requestId, sessionId, tool, summary, intent, createdTs, timeoutMs}` | timeoutMs = 55000; `intent` = "you asked: …" from the session's last prompt, "" when unknown |
+| `claude.permission.request` | `{requestId, sessionId, tool, summary, intent, createdTs, timeoutMs, destructive}` | timeoutMs = 55000; `intent` = "you asked: …" from the session's last prompt, "" when unknown; `destructive` = classified daemon-side against the full command (the device's own regex only ever saw the 200-char summary) — clients fall back to their regex when the field is absent |
 | `claude.permission.resolved` | `{requestId, resolution:"allow"\|"deny"\|"timeout"}` | closes prompt everywhere; terminal-answered too |
 | `claude.question.request` | `Ask` (kind `question`) | a multiple-choice question is on screen in some session |
 | `claude.question.resolved` | `{id, resolution:"answered"\|"timeout"}` | the question is gone, however it was answered |
-| `claude.usage.update` | `Usage` | pushed once a minute |
+| `claude.usage.update` | `Usage` (slim) | pushed once a minute, carrying only the device-rendered subset: no `subscription`, no `notes`, no `mcp`, first window only, top lists capped at 3. `claude.usage.get` returns the full reading |
 | `claude.daemon.status` | `{connected:bool}` | synthesized by relays on daemon link up/down — never sent by the daemon itself |
 
 ## Shapes
@@ -106,7 +106,7 @@ SessionDetail = SessionSummary & {
 Stats = { active: number, attention: number }
 
 Ask =
-  | { kind:"permission", id, sessionId, sessionName, tool, summary, intent, createdTs, timeoutMs }
+  | { kind:"permission", id, sessionId, sessionName, tool, summary, intent, createdTs, timeoutMs, destructive? }
   | { kind:"question", id, sessionId, sessionName, intent, createdTs,
       questions: [{ header, question, options:[{label, description}], multiSelect }],
       // mirrors of questions[0] — the card's summary line, and what a client

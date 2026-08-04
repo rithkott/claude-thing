@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseUsage, describeFailure, reconcileUsage } from '../src/usage.js';
+import { parseUsage, describeFailure, reconcileUsage, slimUsage } from '../src/usage.js';
 
 // Verbatim shape of `claude -p "/usage"` output.
 const SAMPLE = `You are currently using your subscription to power your Claude Code usage
@@ -165,4 +165,43 @@ test('a real stderr line beats a warning above it', () => {
 test('with nothing but warnings, the error message itself is used', () => {
   const msg = describeFailure(new Error('spawn claude ENOENT'), STDIN_WARNING);
   assert.equal(msg, 'spawn claude ENOENT');
+});
+
+// ---- slimUsage --------------------------------------------------------------
+
+test('slimUsage keeps what the device renders and drops the rest', () => {
+  const slim = slimUsage({
+    updatedTs: 5, updatedLabel: 'updated', stale: true, error: undefined,
+    subscription: 'You are currently using your subscription…',
+    limits: [{ key: 'session', label: 'SESSION', used: 0.5, detail: 'resets soon' }],
+    windows: [
+      {
+        window: 'Last 24h', requests: 10, sessions: 2,
+        notes: ['Top skills: /a 4%'],
+        skills: [{ name: '/a', pct: '4%' }, { name: '/b', pct: '3%' }, { name: '/c', pct: '2%' }, { name: '/d', pct: '1%' }],
+        subagents: [],
+        mcp: [{ name: 'srv', pct: '9%' }],
+      },
+      { window: 'Last 7d', requests: 99, sessions: 9, notes: [], skills: [], subagents: [], mcp: [] },
+    ],
+  });
+
+  assert.equal(slim.subscription, undefined, 'subscription dropped');
+  assert.equal(slim.windows.length, 1, 'first window only');
+  assert.equal(slim.windows[0].notes, undefined, 'notes dropped');
+  assert.equal(slim.windows[0].mcp, undefined, 'mcp dropped');
+  assert.equal(slim.windows[0].skills.length, 3, 'top lists capped at 3');
+  assert.deepEqual(
+    { window: slim.windows[0].window, requests: slim.windows[0].requests, sessions: slim.windows[0].sessions },
+    { window: 'Last 24h', requests: 10, sessions: 2 }
+  );
+  assert.equal(slim.limits[0].used, 0.5, 'limits pass through whole');
+  assert.equal(slim.stale, true);
+});
+
+test('slimUsage tolerates the not-read-yet and windowless shapes', () => {
+  assert.equal(slimUsage(null), null);
+  const slim = slimUsage({ limits: [], error: 'usage not read yet' });
+  assert.deepEqual(slim.windows, []);
+  assert.equal(slim.error, 'usage not read yet');
 });

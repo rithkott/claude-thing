@@ -7,7 +7,7 @@ import { createSources } from './sessions/index.js';
 import { createHttpServer } from './http-server.js';
 import { createFocus } from './focus.js';
 import { createQueue } from './queue.js';
-import { createUsage } from './usage.js';
+import { createUsage, slimUsage } from './usage.js';
 import { log } from './log.js';
 
 // Broadcast the whole waiting list whenever a client turns up, so a screen that
@@ -67,7 +67,9 @@ hub.setMethods({
   // focus and its keystrokes would send them to the window it just raised.
   'claude.session.focus': async ({ id }) => focus.exclusive(() => focus.focusSession(id)),
 
-  'claude.usage.get': async () => usage.get(),
+  // {slim} returns the device-rendered subset — see slimUsage() — so the
+  // synchronous boot response stays well inside one Bluetooth chunk.
+  'claude.usage.get': async ({ slim } = {}) => (slim ? slimUsage(usage.get()) : usage.get()),
 });
 
 let server;

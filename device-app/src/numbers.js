@@ -11,7 +11,7 @@
 // wrap() lives in upstream nocturne-connector, so the device undoes the damage
 // instead: a boolean sitting on a field we know is numeric becomes 0/1 again.
 // Genuine booleans (pendingPermission, ended, multiSelect, connected, stale,
-// expired) are absent from the list and pass through untouched.
+// expired, destructive) are absent from the list and pass through untouched.
 
 var NUMERIC = {
   // Snapshot envelope — tzOffsetMin is 0 in UTC, which coerces to false

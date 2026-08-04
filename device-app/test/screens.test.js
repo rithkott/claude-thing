@@ -820,3 +820,17 @@ test('watchTarget is null on screens that render no detail', () => {
     assert.equal(watchTarget(name, null, state), null, name);
   }
 });
+
+// ---- isDestructive: daemon flag first, regex fallback -----------------------
+
+test('a daemon-sent destructive flag outranks the regex either way', () => {
+  assert.ok(isDestructive(permAsk({ summary: 'harmless-looking', destructive: true })),
+    'flag true arms, whatever the summary says');
+  assert.ok(!isDestructive(permAsk({ summary: 'rm -rf /', destructive: false })),
+    'flag false disarms even a scary summary — the daemon saw the whole command');
+});
+
+test('no flag falls back to the regex over the summary', () => {
+  assert.ok(isDestructive(permAsk({ summary: 'git reset --hard HEAD~1' })));
+  assert.ok(!isDestructive(permAsk({ summary: 'git status' })));
+});

@@ -120,6 +120,31 @@ export function parseUsage(text, now = Date.now()) {
   };
 }
 
+// The device renders a fixed subset of a reading: every limit bar, the first
+// window's line and its top-3 skills/subagents tables. The rest — notes, MCP
+// servers, the subscription sentence, further windows — is ~half the payload
+// and never drawn, so the once-a-minute event (which crosses the Bluetooth
+// link) carries only the rendered shape. claude.usage.get stays full unless
+// asked ({slim}), and what is persisted is always the full reading.
+export function slimUsage(u) {
+  if (!u) return u;
+  const first = (u.windows || [])[0];
+  return {
+    updatedTs: u.updatedTs,
+    updatedLabel: u.updatedLabel,
+    stale: u.stale,
+    error: u.error,
+    limits: u.limits || [],
+    windows: first ? [{
+      window: first.window,
+      requests: first.requests,
+      sessions: first.sessions,
+      skills: (first.skills || []).slice(0, 3),
+      subagents: (first.subagents || []).slice(0, 3),
+    }] : [],
+  };
+}
+
 // --- keeping a reading honest across polls ------------------------------------
 //
 // `claude -p /usage` does not always ask the server. It prints whatever is in
@@ -239,7 +264,7 @@ export function createUsage({ emit }) {
           latest = { ...(latest || {}), stale: true, error: 'could not parse /usage output' };
         }
       }
-      emit('claude.usage.update', latest);
+      emit('claude.usage.update', slimUsage(latest));
     } catch (err) {
       log('US', `usage refresh failed: ${err.message}`);
     } finally {
