@@ -226,3 +226,48 @@ test('no prompt seen means an empty intent, never an invented one', () => {
   assert.equal(req.data.intent, '');
   assert.equal(bridge.list()[0].intent, '');
 });
+
+// ---- destructive classification --------------------------------------------
+
+test('a destructive command is flagged on the event and in list()', () => {
+  const { bridge, events } = setup();
+  bridge.onHookRequest(HOOK, fakeRes());   // rm -rf …
+
+  const req = events.find((e) => e.topic === 'claude.permission.request');
+  assert.equal(req.data.destructive, true);
+  assert.equal(bridge.list()[0].destructive, true);
+});
+
+test('a benign command is explicitly not destructive', () => {
+  const { bridge, events } = setup();
+  bridge.onHookRequest({
+    ...HOOK, tool_input: { command: 'ls -la' },
+  }, fakeRes());
+
+  const req = events.find((e) => e.topic === 'claude.permission.request');
+  assert.equal(req.data.destructive, false);
+  assert.equal(bridge.list()[0].destructive, false);
+});
+
+test('a --force past the 200-char summary truncation still arms', () => {
+  // The device only ever sees summary.slice(0, 200); the daemon classifies
+  // against the whole command, so the tail is not a blind spot.
+  const command = 'git push origin ' + 'a-very-long-branch-name-'.repeat(9) + ' --force';
+  assert.ok(command.length > 200, 'premise: the flag sits past the truncation');
+  const { bridge, events } = setup();
+  bridge.onHookRequest({ ...HOOK, tool_input: { command } }, fakeRes());
+
+  const req = events.find((e) => e.topic === 'claude.permission.request');
+  assert.equal(req.data.destructive, true);
+  assert.ok(req.data.summary.length <= 200, 'summary itself stays truncated');
+});
+
+test('non-command tools classify against the summary', () => {
+  const { bridge, events } = setup();
+  bridge.onHookRequest({
+    ...HOOK, tool_name: 'Write', tool_input: { file_path: '/tmp/x.txt' },
+  }, fakeRes());
+
+  const req = events.find((e) => e.topic === 'claude.permission.request');
+  assert.equal(req.data.destructive, false);
+});

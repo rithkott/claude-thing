@@ -60,12 +60,18 @@ export function effortLabel(effort) {
 }
 
 // A command you cannot take back must not cost the same gesture as "read a
-// file". Anything matching here is flagged destructive: the allow chip asks
-// for a second press, on the queue hero and the prompt screen alike.
+// file". Anything flagged destructive costs a second press on the allow chip,
+// on the queue hero and the prompt screen alike. The daemon now classifies at
+// the source — against the full command, where a --force past the 200-char
+// summary truncation is still visible — and sends the verdict on the ask. The
+// regex stays as the fallback for daemons too old to send one, kept verbatim
+// in sync with daemon/src/permission-bridge.js.
 var DESTRUCTIVE_RE = /\brm\s+-|--force\b|--hard\b|\bDROP\s|\bTRUNCATE\b|\bmkfs|\bdd\s+if=|\bchmod\s+777\b|curl[^|]*\|\s*(ba|z)?sh/i;
 
 export function isDestructive(ask) {
-  return ask.kind === 'permission' && DESTRUCTIVE_RE.test(String(ask.summary || ''));
+  if (ask.kind !== 'permission') return false;
+  if (typeof ask.destructive === 'boolean') return ask.destructive;
+  return DESTRUCTIVE_RE.test(String(ask.summary || ''));
 }
 
 // Which session's detail stream this screen actually reads: the open detail
