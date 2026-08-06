@@ -1,0 +1,515 @@
+Re-register the RFCOMM profiles when BlueZ drops them.
+
+nocturned registers its SPP (channel 2) and iAP2 (channel 1) profiles once at
+startup via org.bluez.ProfileManager1.RegisterProfile, then moves the returned
+handle into a task that drains its request stream. BlueZ owns the SDP record
+and the listening socket only for as long as that handle lives.
+
+When the stream ends -- bluetoothd restarts, the adapter goes away, D-Bus
+errors -- the task falls out of its `while let` loop, the handle drops, and
+BlueZ tears down both the record and the listener. Nothing logs it and nothing
+re-registers, so the daemon keeps running with no serial port at all until the
+device is rebooted.
+
+ACL and AVRCP survive that independently, so macOS still reports the Car Thing
+as Connected while the Nocturne connector -- which hardcodes channel 2 and
+never performs an SDP query -- fails every dial with "could not open RFCOMM
+channel 2" and parks the device on "Needs Probe".
+
+Each registration now runs under a supervisor loop that re-registers with
+exponential backoff (1s to 30s, reset on success), re-asserts the adapter
+properties and pairing agent that a bluetoothd restart also drops, and
+broadcasts bluetooth.profile registered/unregistered so the UI can tell
+"listening" from "the record is gone". The first registration still returns
+Err, so a profile that can never be registered remains a startup failure.
+
+Also corrects the stale-advertisement hint: the device image is BusyBox init
+plus supervisord, with no systemd, so `sudo systemctl restart bluetooth` is not
+a command anyone can run on it.
+
+scripts/build-nocturned.sh applies this and cross-compiles the result in Docker
+in about 90 seconds; the notes below are for doing it by hand.
+
+Apply in a checkout of https://github.com/usenocturne/nocturned:
+
+    cd /path/to/nocturned
+    git apply /path/to/claude-thing/patches/nocturned-spp-reregister.patch
+
+--- a/src/bluetooth.rs
++++ b/src/bluetooth.rs
+@@ -111,7 +111,7 @@
+                 warn!(
+                     "Detected {} active advertising instance(s) from a previous run. \
+                      If BLE advertising misbehaves, restart bluetooth: \
+-                     sudo systemctl restart bluetooth",
++                     supervisorctl restart bluetoothd",
+                     count
+                 );
+             }
+@@ -124,6 +124,126 @@
+         }
+     }
+ 
++    /// Longest a profile supervisor waits between re-registration attempts.
++    const PROFILE_REREGISTER_MAX_BACKOFF: Duration = Duration::from_secs(30);
++
++    /// Re-apply the adapter properties and the pairing agent that a bluetoothd
++    /// restart drops. `new()` sets these exactly once, so without this a
++    /// restarted bluetoothd leaves the device non-discoverable and agentless
++    /// even after its RFCOMM profiles come back.
++    async fn reassert_adapter_state(session: &Session) {
++        let adapter = match session.default_adapter().await {
++            Ok(adapter) => adapter,
++            Err(e) => {
++                warn!("Could not re-acquire the Bluetooth adapter: {}", e);
++                return;
++            }
++        };
++
++        if let Err(e) = adapter.set_powered(true).await {
++            warn!("Failed to re-power the Bluetooth adapter: {}", e);
++        }
++        if let Err(e) = adapter.set_discoverable(true).await {
++            warn!("Failed to restore discoverable: {}", e);
++        }
++        if let Err(e) = adapter.set_pairable(true).await {
++            warn!("Failed to restore pairable: {}", e);
++        }
++
++        match crate::config::get_bluetooth_device_name() {
++            Ok(device_name) => {
++                if let Err(e) = adapter.set_alias(device_name.clone()).await {
++                    warn!(
++                        "Failed to restore Bluetooth device name '{}': {}",
++                        device_name, e
++                    );
++                }
++            }
++            Err(e) => warn!("Failed to get dynamic device name: {}", e),
++        }
++
++        Self::reregister_bluetooth_agent().await;
++    }
++
++    /// Same RegisterAgent call as `register_bluetooth_agent`, but tolerant of
++    /// the agent still being registered — after a bluetoothd restart we cannot
++    /// tell from here whether it survived.
++    async fn reregister_bluetooth_agent() {
++        let joined = tokio::task::spawn_blocking(|| {
++            let conn = match Connection::new_system() {
++                Ok(conn) => conn,
++                Err(e) => {
++                    warn!("Failed to connect to D-Bus to restore the agent: {}", e);
++                    return;
++                }
++            };
++
++            let agent_path = match Path::new("/org/nocturned/agent") {
++                Ok(path) => path,
++                Err(e) => {
++                    warn!("Invalid agent path: {}", e);
++                    return;
++                }
++            };
++
++            let proxy = conn.with_proxy(
++                "org.bluez",
++                "/org/bluez",
++                std::time::Duration::from_secs(10),
++            );
++
++            let registered: std::result::Result<(), dbus::Error> = proxy.method_call(
++                "org.bluez.AgentManager1",
++                "RegisterAgent",
++                (agent_path.clone(), "DisplayYesNo"),
++            );
++
++            match &registered {
++                Ok(()) => info!("Re-registered the Bluetooth pairing agent"),
++                Err(e) if e.name() == Some("org.bluez.Error.AlreadyExists") => {
++                    debug!("Bluetooth pairing agent still registered");
++                }
++                Err(e) => {
++                    warn!("Failed to re-register the Bluetooth pairing agent: {}", e);
++                    return;
++                }
++            }
++
++            let made_default: std::result::Result<(), dbus::Error> =
++                proxy.method_call("org.bluez.AgentManager1", "RequestDefaultAgent", (agent_path,));
++            if let Err(e) = made_default {
++                warn!("Failed to restore the default Bluetooth agent: {}", e);
++            }
++        })
++        .await;
++
++        if let Err(e) = joined {
++            warn!("Agent re-registration task failed: {}", e);
++        }
++    }
++
++    /// Announce whether BlueZ is currently serving one of our RFCOMM profiles,
++    /// so the UI can tell "listening" from "the record is gone" instead of
++    /// inferring it from a failed connection.
++    async fn broadcast_profile_state(
++        websocket_server: &Option<Arc<WebSocketServer>>,
++        profile: &str,
++        channel: u8,
++        registered: bool,
++    ) {
++        if let Some(ws) = websocket_server {
++            ws.broadcast_event(
++                "bluetooth.profile".to_string(),
++                serde_json::json!({
++                    "event": if registered { "registered" } else { "unregistered" },
++                    "profile": profile,
++                    "channel": channel,
++                }),
++            )
++            .await;
++        }
++    }
++
+     pub async fn run(&mut self) -> Result<()> {
+         self.check_stale_advertisements().await;
+ 
+@@ -739,7 +859,9 @@
+             crate::error::NocturnedError::Config(format!("Invalid iAP2 UUID: {}", e))
+         })?;
+ 
+-        let profile = Profile {
++        // Rebuilt per registration — see register_spp_profile.
++        let iap2_record = self.create_sdp_record_xml(accessory_uuid);
++        let make_profile = move || Profile {
+             uuid,
+             service: Some(uuid),
+             name: Some("iAP2".to_string()),
+@@ -748,7 +870,7 @@
+             require_authentication: Some(true),
+             require_authorization: Some(false),
+             auto_connect: Some(true),
+-            service_record: Some(self.create_sdp_record_xml(accessory_uuid)),
++            service_record: Some(iap2_record.clone()),
+             version: Some(0x0102),
+             ..Default::default()
+         };
+@@ -760,46 +882,80 @@
+         let audio_cmd_tx = self.audio_cmd_tx.clone();
+         let wakeword_pause_tx = self.wakeword_pause_tx.clone();
+ 
+-        let handle = session.register_profile(profile).await?;
++        let mut handle = session.register_profile(make_profile()).await?;
++        Self::broadcast_profile_state(&websocket_server, "iap2", 1, true).await;
+ 
+         tokio::spawn(async move {
+-            futures::pin_mut!(handle);
+-            while let Some(req) = handle.next().await {
+-                let device = req.device();
+-                match req.accept() {
+-                    Ok(stream) => {
+-                        info!("New RFCOMM connection from: {}", device);
++            let mut backoff = Duration::from_secs(1);
+ 
+-                        if let Some(ws_server) = &websocket_server {
+-                            ws_server
+-                                .broadcast_event(
+-                                    "bluetooth.connection".to_string(),
+-                                    serde_json::json!({
+-                                        "event": "connection_established",
+-                                        "device": device.to_string(),
+-                                        "connection_type": "rfcomm"
+-                                    }),
++            loop {
++                {
++                    let mut requests = Box::pin(handle);
++                    while let Some(req) = requests.next().await {
++                        let device = req.device();
++                        match req.accept() {
++                            Ok(stream) => {
++                                info!("New RFCOMM connection from: {}", device);
++
++                                if let Some(ws_server) = &websocket_server {
++                                    ws_server
++                                        .broadcast_event(
++                                            "bluetooth.connection".to_string(),
++                                            serde_json::json!({
++                                                "event": "connection_established",
++                                                "device": device.to_string(),
++                                                "connection_type": "rfcomm"
++                                            }),
++                                        )
++                                        .await;
++                                }
++
++                                if let Err(e) = Self::handle_new_connection(
++                                    device,
++                                    stream,
++                                    connections.clone(),
++                                    websocket_server.clone(),
++                                    audio_event_rx.resubscribe(),
++                                    audio_cmd_tx.clone(),
++                                    wakeword_pause_tx.clone(),
+                                 )
+-                                .await;
++                                .await
++                                {
++                                    error!("Failed to handle connection: {}", e);
++                                }
++                            }
++                            Err(e) => {
++                                error!("Failed to accept RFCOMM connection: {}", e);
++                            }
+                         }
++                    }
++                }
+ 
+-                        if let Err(e) = Self::handle_new_connection(
+-                            device,
+-                            stream,
+-                            connections.clone(),
+-                            websocket_server.clone(),
+-                            audio_event_rx.resubscribe(),
+-                            audio_cmd_tx.clone(),
+-                            wakeword_pause_tx.clone(),
+-                        )
+-                        .await
+-                        {
+-                            error!("Failed to handle connection: {}", e);
++                warn!(
++                    "iAP2 profile request stream ended — BlueZ is no longer listening on \
++                     RFCOMM channel 1"
++                );
++                Self::broadcast_profile_state(&websocket_server, "iap2", 1, false).await;
++
++                loop {
++                    tokio::time::sleep(backoff).await;
++                    backoff = (backoff * 2).min(Self::PROFILE_REREGISTER_MAX_BACKOFF);
++
++                    match session.register_profile(make_profile()).await {
++                        Ok(fresh) => {
++                            info!("iAP2 profile re-registered on RFCOMM channel 1");
++                            Self::broadcast_profile_state(&websocket_server, "iap2", 1, true).await;
++                            handle = fresh;
++                            backoff = Duration::from_secs(1);
++                            break;
+                         }
++                        Err(e) => {
++                            error!(
++                                "Failed to re-register the iAP2 profile: {} — retrying in {:?}",
++                                e, backoff
++                            );
++                        }
+                     }
+-                    Err(e) => {
+-                        error!("Failed to accept RFCOMM connection: {}", e);
+-                    }
+                 }
+             }
+         });
+@@ -812,7 +968,10 @@
+             crate::error::NocturnedError::Config(format!("Invalid SPP UUID: {}", e))
+         })?;
+ 
+-        let profile = Profile {
++        // Rebuilt per registration: BlueZ takes the profile by value, so a
++        // re-registration needs a fresh one.
++        let spp_record = self.create_spp_record_xml();
++        let make_profile = move || Profile {
+             uuid: spp_uuid,
+             name: Some("Nocturne".to_string()),
+             role: Some(Role::Server),
+@@ -820,7 +979,7 @@
+             require_authentication: Some(true),
+             require_authorization: Some(false),
+             auto_connect: Some(false),
+-            service_record: Some(self.create_spp_record_xml()),
++            service_record: Some(spp_record.clone()),
+             version: Some(0x0102),
+             ..Default::default()
+         };
+@@ -832,78 +991,122 @@
+         let pairing_mode = self.pairing_mode.clone();
+         let audio_event_rx = self.audio_event_rx.resubscribe();
+ 
+-        let handle = session.register_profile(profile).await?;
++        // The first registration still fails the daemon: a profile we can never
++        // register is a startup error, and supervisord should restart us.
++        let mut handle = session.register_profile(make_profile()).await?;
++        Self::broadcast_profile_state(&websocket_server, "spp", 2, true).await;
+ 
+         tokio::spawn(async move {
+-            futures::pin_mut!(handle);
+-            while let Some(req) = handle.next().await {
+-                let device = req.device();
+-                let pairing_allowed = { *pairing_mode.lock().await };
+-                let wake_armed = { *android_wake_armed.lock().await };
+-                if !pairing_allowed && !wake_armed {
+-                    info!(
+-                        "Rejecting SPP connection from {} because neither pairing mode nor Android wake is armed",
+-                        device
+-                    );
+-                    req.reject(ReqError::Rejected);
+-                    continue;
+-                }
++            let mut backoff = Duration::from_secs(1);
+ 
+-                if pairing_allowed {
+-                    info!("Accepting SPP connection from {} (pairing mode)", device);
+-                } else {
+-                    info!("Accepting SPP connection from {} (wake armed)", device);
+-                }
+-
+-                match req.accept() {
+-                    Ok(stream) => {
+-                        info!("New SPP connection from generic device: {}", device);
+-
+-                        {
+-                            let mut armed = android_wake_armed.lock().await;
+-                            *armed = false;
++            // Outer loop: one pass per registration. The request stream ending
++            // means BlueZ tore down our SDP record and the channel-2 listener —
++            // bluetoothd restarted, the adapter went away, or D-Bus errored. It
++            // never comes back on its own, so re-register instead of returning.
++            loop {
++                {
++                    let mut requests = Box::pin(handle);
++                    while let Some(req) = requests.next().await {
++                        let device = req.device();
++                        let pairing_allowed = { *pairing_mode.lock().await };
++                        let wake_armed = { *android_wake_armed.lock().await };
++                        if !pairing_allowed && !wake_armed {
++                            info!(
++                                "Rejecting SPP connection from {} because neither pairing mode nor Android wake is armed",
++                                device
++                            );
++                            req.reject(ReqError::Rejected);
++                            continue;
+                         }
+ 
+-                        let ws_server = websocket_server.clone();
+-                        if let Some(ws) = &ws_server {
+-                            ws.broadcast_event(
+-                                "bluetooth.connection".to_string(),
+-                                serde_json::json!({
+-                                    "event": "connection_established",
+-                                    "device": device.to_string(),
+-                                    "connection_type": "generic"
+-                                }),
+-                            )
+-                            .await;
++                        if pairing_allowed {
++                            info!("Accepting SPP connection from {} (pairing mode)", device);
++                        } else {
++                            info!("Accepting SPP connection from {} (wake armed)", device);
+                         }
+ 
+-                        let (app_tx, app_rx) = mpsc::unbounded_channel::<AppMessage>();
+-
+-                        {
+-                            let mut conns = generic_connections.lock().await;
+-                            conns.push(GenericConnection {
+-                                device_address: device,
+-                                tx: app_tx,
+-                            });
+-                        }
++                        match req.accept() {
++                            Ok(stream) => {
++                                info!("New SPP connection from generic device: {}", device);
+ 
+-                        let generic_conns = generic_connections.clone();
+-                        let ws_clone = ws_server.clone();
+-                        let audio_rx = audio_event_rx.resubscribe();
+-                        tokio::spawn(async move {
+-                            Self::run_spp_msgpack_handler(
+-                                device,
+-                                stream,
+-                                generic_conns,
+-                                ws_clone,
+-                                app_rx,
+-                                audio_rx,
+-                            )
+-                            .await;
+-                        });
++                                {
++                                    let mut armed = android_wake_armed.lock().await;
++                                    *armed = false;
++                                }
++
++                                let ws_server = websocket_server.clone();
++                                if let Some(ws) = &ws_server {
++                                    ws.broadcast_event(
++                                        "bluetooth.connection".to_string(),
++                                        serde_json::json!({
++                                            "event": "connection_established",
++                                            "device": device.to_string(),
++                                            "connection_type": "generic"
++                                        }),
++                                    )
++                                    .await;
++                                }
++
++                                let (app_tx, app_rx) = mpsc::unbounded_channel::<AppMessage>();
++
++                                {
++                                    let mut conns = generic_connections.lock().await;
++                                    conns.push(GenericConnection {
++                                        device_address: device,
++                                        tx: app_tx,
++                                    });
++                                }
++
++                                let generic_conns = generic_connections.clone();
++                                let ws_clone = ws_server.clone();
++                                let audio_rx = audio_event_rx.resubscribe();
++                                tokio::spawn(async move {
++                                    Self::run_spp_msgpack_handler(
++                                        device,
++                                        stream,
++                                        generic_conns,
++                                        ws_clone,
++                                        app_rx,
++                                        audio_rx,
++                                    )
++                                    .await;
++                                });
++                            }
++                            Err(e) => {
++                                error!("Failed to accept SPP connection: {}", e);
++                            }
++                        }
+                     }
+-                    Err(e) => {
+-                        error!("Failed to accept SPP connection: {}", e);
++                }
++
++                warn!(
++                    "SPP profile request stream ended — BlueZ is no longer listening on \
++                     RFCOMM channel 2; the Mac connector cannot dial in until it is back"
++                );
++                Self::broadcast_profile_state(&websocket_server, "spp", 2, false).await;
++
++                // Inner loop: retry until re-registered. Backoff resets on
++                // success so a later drop recovers just as fast as this one.
++                loop {
++                    tokio::time::sleep(backoff).await;
++                    backoff = (backoff * 2).min(Self::PROFILE_REREGISTER_MAX_BACKOFF);
++
++                    Self::reassert_adapter_state(&session).await;
++
++                    match session.register_profile(make_profile()).await {
++                        Ok(fresh) => {
++                            info!("SPP profile re-registered on RFCOMM channel 2");
++                            Self::broadcast_profile_state(&websocket_server, "spp", 2, true).await;
++                            handle = fresh;
++                            backoff = Duration::from_secs(1);
++                            break;
++                        }
++                        Err(e) => {
++                            error!(
++                                "Failed to re-register the SPP profile: {} — retrying in {:?}",
++                                e, backoff
++                            );
++                        }
+                     }
+                 }
+             }

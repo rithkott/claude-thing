@@ -99,6 +99,22 @@ path.write_text(text.replace(anchor, arm + anchor, 1))
 print("   + claude.* arm inserted before the default arm")
 PY
 
+# Upstream registers its RFCOMM profiles once and never notices when BlueZ drops
+# them, which strands the Mac connector on "could not open RFCOMM channel 2"
+# until the device reboots. See patches/nocturned-spp-reregister.patch.
+echo ">> adding the RFCOMM profile re-registration"
+BLUETOOTH="${BUILD_DIR}/src/bluetooth.rs"
+[ -f "$BLUETOOTH" ] || fail "${BUILD_DIR} doesn't look like nocturned (no ${BLUETOOTH#$BUILD_DIR/})"
+if grep -q PROFILE_REREGISTER_MAX_BACKOFF "$BLUETOOTH"; then
+  echo "   = already patched"
+else
+  # -p1 strips the a/ b/ prefixes; run from BUILD_DIR so the patch cannot reach
+  # outside the nocturned copy even though build/ sits inside this repo.
+  (cd "$BUILD_DIR" && git apply -p1 "${REPO_ROOT}/patches/nocturned-spp-reregister.patch") \
+    || fail "patches/nocturned-spp-reregister.patch no longer applies to this nocturned — upstream moved, rebase it"
+  echo "   + profile supervisor loops applied"
+fi
+
 echo ">> building the cross-compile image"
 "$DOCKER" build -q -f "${REPO_ROOT}/scripts/nocturned.Dockerfile" -t "$IMAGE" "${REPO_ROOT}/scripts" >/dev/null
 
