@@ -26,10 +26,20 @@ const STATE_NAME = 'usage';
 // the failure. Well under the 60s refresh, so runs still never overlap.
 const RUN_TIMEOUT_MS = 45_000;
 
+// How many consecutive lower readings it takes to believe a drop. The hold in
+// reconcileUsage exists to ride out a clobbered cache, which flaps back within a
+// poll or two; a window that really rolled over stays low. Three polls a minute
+// apart is long enough to outlast the flap and short enough that a bar is never
+// wrong for more than a few minutes.
+const HOLD_POLLS = 3;
+
 // "Current session: 11% used · resets Jul 30 at 5:19am (America/New_York)"
 const LIMIT_RE = /^\s*Current\s+(session|week[^:]*):\s*(\d+)%\s*used(?:\s*·\s*resets\s+([^(\n]+?))?\s*(?:\(([^)]+)\))?\s*$/i;
-// "Last 24h · 579 requests · 8 sessions"
-const WINDOW_RE = /^\s*Last\s+(\S+)\s*·\s*([\d,]+)\s+requests\s*·\s*([\d,]+)\s+sessions\s*$/i;
+// "Last 24h · 579 requests · 8 sessions" — and "Last 24h · 1 request · 1 session",
+// which Claude Code writes in the singular. Requiring the plural dropped the
+// whole window, bullets included, so the device drew the 7-day breakdown while
+// the Mac led with the 24h one.
+const WINDOW_RE = /^\s*Last\s+(\S+)\s*·\s*([\d,]+)\s+requests?\s*·\s*([\d,]+)\s+sessions?\s*$/i;
 // "Top skills: /webapp-testing 4%, /frontend-design 1%"
 const TOP_RE = /^Top\s+(skills|subagents|MCP servers):\s*(.+)$/i;
 
@@ -152,7 +162,11 @@ export function slimUsage(u) {
     updatedLabel: u.updatedLabel,
     stale: u.stale,
     error: u.error,
-    limits: u.limits || [],
+    // The four fields a bar draws. Projected rather than passed through so the
+    // hold bookkeeping reconcileUsage attaches (lowSeen) stays daemon-side.
+    limits: (u.limits || []).map((l) => ({
+      key: l.key, label: l.label, used: l.used, detail: l.detail,
+    })),
     windows: first ? [{
       window: first.window,
       requests: first.requests,
@@ -208,14 +222,33 @@ export function reconcileUsage(prev, next) {
   }
 
   const before = new Map(((prev && prev.limits) || []).map((l) => [l.key, l]));
+  let holding = false;
   const limits = next.limits.map((l) => {
     const p = before.get(l.key);
     if (!p || !(p.used > l.used) || !sameWindow(p, l)) return l;
+    // A drop the reading itself cannot explain. Hold it, but count: a window
+    // that rolled over while inactive prints 0% with no reset clause at all, so
+    // sameWindow can never tell that apart from a clobbered cache and the hold
+    // used to stand forever — a bar frozen on a figure hours out of date,
+    // labelled as current. After HOLD_POLLS consecutive lower readings the drop
+    // is real enough to take.
+    const lowSeen = (p.lowSeen || 0) + 1;
+    if (lowSeen >= HOLD_POLLS) return l;
     // Held: the previous reading wins, and keeps its reset clause if this one
-    // arrived without any.
-    return { ...l, used: p.used, detail: l.detail || p.detail };
+    // arrived without any. The count rides on the limit so it accumulates
+    // across polls, and vanishes the moment a reading is taken at face value.
+    holding = true;
+    return { ...l, used: p.used, detail: l.detail || p.detail, lowSeen };
   });
-  return { ...next, limits };
+  // A held figure is not current, and must not be dated or persisted as if it
+  // were — same treatment the carry-over above gets.
+  if (!holding) return { ...next, limits };
+  return {
+    ...next,
+    limits,
+    stale: true,
+    limitsTs: (prev && (prev.limitsTs || prev.updatedTs)) || next.updatedTs,
+  };
 }
 
 // The last good reading, so a restart shows real figures instead of spending a
@@ -300,10 +333,15 @@ export function createUsage({ emit }) {
         if (parsed) {
           latest = reconcileUsage(latest, parsed);
           // Nothing to carry and nothing read: say which of the two it is,
-          // rather than leaving the screen on "READING USAGE…" forever. Only a
-          // reading with limits is persisted — a limitless one must never
-          // overwrite the saved figures a restart would otherwise recover.
-          if (latest.limits.length) writeState(STATE_NAME, latest);
+          // rather than leaving the screen on "READING USAGE…" forever.
+          //
+          // Only limits actually read in this poll are persisted, which is what
+          // `limitsTs === updatedTs` says: a carried-over or held figure is
+          // dated earlier and must never reach the state file, or a restart —
+          // or an update — recovers the wrong number and shows it again.
+          if (latest.limits.length && latest.limitsTs === latest.updatedTs) {
+            writeState(STATE_NAME, latest);
+          }
           else latest = { ...latest, stale: true, error: 'claude /usage printed no limits' };
         } else {
           latest = { ...(latest || {}), stale: true, error: 'could not parse /usage output' };

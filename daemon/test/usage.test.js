@@ -131,6 +131,22 @@ test('survives a limit line with no reset clause', () => {
   assert.equal(u.limits[0].detail, '');
 });
 
+test('a window with one request and one session is written in the singular', () => {
+  const out = parseUsage([
+    'Current session: 8% used · resets Aug 6 at 5:50am (America/New_York)',
+    'Last 24h · 1 request · 1 session',
+    '  100% of your usage came from subagent-heavy sessions',
+    '  Top subagents: Explore 47%',
+  ].join('\n'));
+  assert.equal(out.windows.length, 1, 'the plural-only pattern dropped this window whole');
+  assert.deepEqual(
+    { requests: out.windows[0].requests, sessions: out.windows[0].sessions },
+    { requests: 1, sessions: 1 }
+  );
+  assert.deepEqual(out.windows[0].subagents, [{ name: 'Explore', pct: '47%' }],
+    'and its bullets had nowhere to land');
+});
+
 test('top-skills prose is parsed into rows the device can tabulate', () => {
   const out = parseUsage([
     'Current session: 27% used · resets Jul 31 at 2am (America/New_York)',
@@ -168,6 +184,45 @@ test('a reading that lost its reset clause cannot pass as a new window', () => {
   const l = reconcileUsage(prev, next).limits[0];
   assert.equal(l.used, 0.06);
   assert.equal(l.detail, 'resets Aug 1 at 2am', 'the held reading keeps its reset clause');
+});
+
+test('a clause-less drop is held twice and taken on the third reading', () => {
+  // The shape a session window prints once it rolls over while inactive: 0%
+  // used, no reset clause at all. Indistinguishable from a clobbered cache in
+  // any one reading, so the hold is bounded by how long it lasts instead.
+  const zero = () => reading([{ key: 'session', label: 'SESSION', used: 0, detail: '' }]);
+  let s = reading([{ key: 'session', label: 'SESSION', used: 0.88, detail: 'resets Aug 1 at 2am' }]);
+  s = reconcileUsage(s, zero());
+  assert.equal(s.limits[0].used, 0.88, 'one low reading is still a suspect cache read');
+  s = reconcileUsage(s, zero());
+  assert.equal(s.limits[0].used, 0.88);
+  s = reconcileUsage(s, zero());
+  assert.equal(s.limits[0].used, 0, 'three in a row is a rollover, not a flap');
+  assert.equal(s.limits[0].lowSeen, undefined, 'the count goes with the held figure');
+  assert.equal(s.stale, undefined, 'the reading taken at face value is current');
+});
+
+test('a flap resets the count, so the hold never accumulates across one', () => {
+  const high = () => reading([{ key: 'session', label: 'SESSION', used: 0.88, detail: 'resets Aug 1 at 2am' }]);
+  const low = () => reading([{ key: 'session', label: 'SESSION', used: 0, detail: '' }]);
+  let s = reconcileUsage(high(), low());
+  s = reconcileUsage(s, high());
+  assert.equal(s.limits[0].lowSeen, undefined, 'the cache came back — nothing is being held');
+  s = reconcileUsage(s, low());
+  s = reconcileUsage(s, low());
+  assert.equal(s.limits[0].used, 0.88, 'counting starts again from the flap, not from before it');
+});
+
+test('a held reading says so, and is dated when its limits were read', () => {
+  const prev = parseUsage(SAMPLE, Date.parse('2026-08-06T10:56:00'));
+  const out = reconcileUsage(prev, {
+    updatedTs: Date.parse('2026-08-06T11:56:00'),
+    limitsTs: Date.parse('2026-08-06T11:56:00'),
+    limits: prev.limits.map((l) => ({ ...l, used: 0, detail: '' })),
+  });
+  assert.equal(out.stale, true);
+  assert.equal(out.limitsTs, Date.parse('2026-08-06T10:56:00'), 'dated by the last real read');
+  assert.equal(out.updatedTs, Date.parse('2026-08-06T11:56:00'), 'the reading itself is current');
 });
 
 test('a real rollover moves the reset clause, and the drop is taken', () => {
@@ -254,8 +309,17 @@ test('slimUsage keeps what the device renders and drops the rest', () => {
     { window: slim.windows[0].window, requests: slim.windows[0].requests, sessions: slim.windows[0].sessions },
     { window: 'Last 24h', requests: 10, sessions: 2 }
   );
-  assert.equal(slim.limits[0].used, 0.5, 'limits pass through whole');
+  assert.equal(slim.limits[0].used, 0.5, 'every field a bar draws survives');
   assert.equal(slim.stale, true);
+});
+
+test('slimUsage leaves the hold bookkeeping behind', () => {
+  const held = reconcileUsage(
+    reading([{ key: 'session', label: 'SESSION', used: 0.88, detail: 'resets Aug 1 at 2am' }]),
+    reading([{ key: 'session', label: 'SESSION', used: 0, detail: '' }])
+  );
+  assert.equal(held.limits[0].lowSeen, 1, 'the daemon counts');
+  assert.equal(slimUsage(held).limits[0].lowSeen, undefined, 'the device is never told');
 });
 
 test('slimUsage tolerates the not-read-yet and windowless shapes', () => {
