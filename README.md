@@ -8,6 +8,8 @@ approve/deny from the dial.
 > custom Car Thing firmware by [usenocturne](https://github.com/usenocturne).
 > Nothing Nocturne does is removed — this adds a second mode alongside it, and
 > the two swap at runtime, so the device stays a music player when you want one.
+>
+> ***Updating to work off Nocturne 4.1 Soon***
 
 **No Car Thing? You can still run this.** Skip to
 [Try it without the hardware](#try-it-without-the-hardware).
