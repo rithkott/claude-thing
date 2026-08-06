@@ -60,7 +60,9 @@ Reassembly: per-session `BytesMut`, cap 256KB (overflow drops whole buffer). CRC
 | Transport | iAP2 EA session, RFCOMM ch 1 | RFCOMM SPP (UUID 00001101-…) ch 2 |
 | Framing | raw chunk bytes in EA datagrams | **base64 + newline-delimited lines** per chunk (`bluetooth.rs:968-1077`) |
 
-macOS connector: daemon probes Mac on ch 3 (`MACOS_CONNECTOR_PROBE_CHANNEL`, `bluetooth.rs:1417`), holds 750ms, Mac dials back to ch 2.
+macOS connector: daemon probes Mac on ch 3 (`MACOS_CONNECTOR_PROBE_CHANNEL`, `bluetooth.rs:1417`), holds 750ms, Mac dials back to ch 2. **The Mac hardcodes ch 2 and never runs an SDP query** — a missing Serial Port entry in macOS's service list is the device having dropped the profile, never a stale Mac SDP cache, so re-pairing is not the fix.
+
+Both profiles are BlueZ `RegisterProfile` registrations scoped to the handle nocturned holds; if bluetoothd restarts, the handle dies and the SDP record plus the RFCOMM listener go with it while ACL/AVRCP survive — macOS keeps saying "Connected" over a port nobody is listening on. `patches/nocturned-spp-reregister.patch` puts each registration under a supervisor loop that re-registers with 1s→30s backoff, re-asserts adapter discoverable/pairable/alias + the pairing agent, and broadcasts `bluetooth.profile` registered/unregistered.
 
 **Handshake:** daemon sends `daemon.ready` event on session open, re-sends every 3s until phone replies `app.ready`; then `daemon.heartbeat` every 10s. Phone→daemon calls the daemon answers itself: `ping`, `device.info`, `device.volume.update`, `media.control.*` (`app/msgpack.rs:279-302,643-707`).
 
