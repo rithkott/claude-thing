@@ -13,10 +13,14 @@ emulator/logs/
 # scratch copy of nocturne-connector that build-connector-dmg.sh patches
 build/
 
-# firmware images are ~350MB — never commit them
+# firmware images are ~350-450MB — never commit them
 *.zip
 *.ext2
 *.dump
+# Nocturne 4.1 flashthing members: a whole-disk .wic and the carved partitions
+*.wic
+*.ext4
+*.bin
 
 # feature worktrees live inside the repo but are their own checkouts
 .claude/worktrees/
