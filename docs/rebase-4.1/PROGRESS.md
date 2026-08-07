@@ -18,19 +18,32 @@ remainder under **Next action** below. Never end a session with a dirty tree.
 
 ## Next action
 
-> Phase 2 — rewrite `scripts/inject-firmware.js` for the flashthing zip.
+> Phase 3 — port the emulator onto the 4.1 image layout.
+
+## Worktree setup (needed once per fresh worktree)
+
+`daemon/node_modules` is a tracked relative symlink, but `device-app` and `emulator` are not. Create
+them the same way — **relative, never absolute**:
+
+```sh
+ln -s ../../claude-thing/device-app/node_modules device-app/node_modules
+ln -s ../../claude-thing/emulator/node_modules   emulator/node_modules
+```
 
 ## Phases
 
 - [x] **1 — Scaffold.** Worktree `../claude-thing-nocturne-41` on `feat/nocturne-41` off `origin/dev`;
       `NOTES.md` + this ledger; `*.wic`/`*.ext4` gitignored; base image cached at
       `firmware/nocturne_image_v4.1.0.zip` (423 MB, gitignored via `*.zip`).
-- [ ] **2 — `scripts/inject-firmware.js`.** Parse `meta.json`, extract `superbird.wic`, parse GPT,
-      carve `root_a`/`root_b`, `debugfs` the payload into `/usr/lib/nocturne/webapps/ui/claude/` and
-      graft `<script src="/claude/switch.js">` into that `index.html`; write the carved images back
-      and repack. Same edit against the standalone `bandaid.ext4` member (belt and braces — the
-      wic's own bandaid partition is overwritten at flash time). Drop `--nocturned`.
-      Output `nocturne_v4.1.0_claude_<version>.zip`. See NOTES §3, §4.
+- [x] **2 — `scripts/inject-firmware.js`.** Rewritten for the flashthing zip: reads the real GPT out
+      of `superbird.wic`, carves `root_a`/`root_b` by offset, drives `debugfs` against each carved
+      ext4 writing `/usr/lib/nocturne/webapps/ui/claude/` and grafting
+      `<script src="/claude/switch.js">` into that `index.html`, writes the images back at the same
+      offsets, and repacks. Same edit against the standalone `bandaid.ext4` member. `--nocturned`
+      dropped. **Verified** against the cached v4.1.0 zip: both slots carry `claude/` (14 assets +
+      `index.html` + `switch.js`) with the graft present, bandaid too, and a region-by-region
+      SHA-256 shows *only* `root_a`/`root_b` changed — GPT, `env`, `boot_a`, `boot_b` and the wic's
+      bandaid region are byte-identical, wic size unchanged at 1,430,275,072.
 - [ ] **3 — Emulator.** `emulator/src/firmware.js` onto the GPT-carve path + new UI dir; no
       `version.json` in 4.1 so the filename regex is the only version source;
       `deploy-dev.js:75-95` new path; `ws-server.js` must **forward** unknown methods rather than
@@ -80,3 +93,10 @@ Anything that contradicted the plan, so a later session does not re-learn it.
 - No snake_case renames are needed: the app declares `platform: "web"` and 4.1 deliberately
   down-converts for web companions. Changing that string would break six Spotify commands. (§5b)
 - The DMG's "binary frame" strings exist in no public source — Mac-app-private, do not chase. (§5d)
+- The 4.1 prod rootfs has only **17.2 MiB free** (`Free blocks: 4403 × 4096`). The device app is
+  543 KB so it fits, but there is no room for a second large payload — this is why swapping a 17 MB
+  `nocturned` into the rootfs floor would have been tight even if we still wanted to.
+- The bandaid tree is owned **1000:1000**, the rootfs floor **0:0**. The injector mirrors whichever
+  the existing `ui` directory uses rather than assuming root.
+- Bash tool commands run under **zsh**: unquoted `$var` does not word-split, so `set -- $pair`
+  yields one argument. Bit me while writing a verification loop; use explicit arguments.
