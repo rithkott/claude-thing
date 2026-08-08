@@ -277,8 +277,11 @@ final class RPCManager: ObservableObject {
         case "chunk.retransmit_request":
             guard let messageId = data.mapValue("message_id")?.stringValue,
                   let chunkIdx = data.mapValue("chunk_idx")?.intValue else { return }
-            for (_, conn) in connections {
-                conn.client.retransmitChunk(messageId: messageId, chunkIndex: chunkIdx)
+            let clients = connections.values.map(\.client)
+            Task { @MainActor in
+                for client in clients {
+                    await client.retransmitChunk(messageId: messageId, chunkIndex: chunkIdx)
+                }
             }
         default:
             break

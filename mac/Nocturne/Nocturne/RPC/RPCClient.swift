@@ -17,9 +17,17 @@ final class RPCClient {
     private let assembler = ChunkedMessageAssembler()
     private var pendingRequests: [String: CheckedContinuation<MessagePackValue, Error>] = [:]
     private var pendingTimers: [String: Task<Void, Never>] = [:]
-    private var sentChunks: [String: [Data]] = [:]
+    private struct RetainedChunks {
+        let chunks: [Data]
+        let sentAt: Date
+    }
+
+    private var sentChunks: [String: RetainedChunks] = [:]
     private var sentChunkOrder: [String] = []
     private let sentChunksLimit = 32
+    // Matches RETAINED_MESSAGE_TTL_MS. The 32-message cap alone leaves a quiet
+    // link holding a whole OTA transfer's chunks indefinitely.
+    private static let retainedChunkTTL: TimeInterval = 2 * 60
     private var invalidBase64SampleCount = 0
     private var cleanupTask: Task<Void, Never>?
     private static let cleanupIntervalNs: UInt64 = 30 * 1_000_000_000
@@ -253,7 +261,7 @@ final class RPCClient {
         if sentChunks[messageId] == nil {
             sentChunkOrder.append(messageId)
         }
-        sentChunks[messageId] = chunks
+        sentChunks[messageId] = RetainedChunks(chunks: chunks, sentAt: Date())
         while sentChunkOrder.count > sentChunksLimit {
             sentChunks.removeValue(forKey: sentChunkOrder.removeFirst())
         }
@@ -265,17 +273,31 @@ final class RPCClient {
                 try? await Task.sleep(nanoseconds: Self.cleanupIntervalNs)
                 guard let self, !Task.isCancelled else { return }
                 self.assembler.cleanupStale()
+                self.dropExpiredChunks()
             }
         }
     }
 
-    func retransmitChunk(messageId: String, chunkIndex: Int) {
-        guard let chunks = sentChunks[messageId], chunks.indices.contains(chunkIndex) else {
+    private func dropExpiredChunks() {
+        let cutoff = Date().addingTimeInterval(-Self.retainedChunkTTL)
+        let expired = sentChunks.filter { $0.value.sentAt < cutoff }.keys
+        guard !expired.isEmpty else { return }
+        for id in expired { sentChunks.removeValue(forKey: id) }
+        sentChunkOrder.removeAll { sentChunks[$0] == nil }
+    }
+
+    func retransmitChunk(messageId: String, chunkIndex: Int) async {
+        guard let retained = sentChunks[messageId], retained.chunks.indices.contains(chunkIndex) else {
             log.error("Cannot retransmit chunk \(chunkIndex, privacy: .public) for \(messageId, privacy: .public): not found")
             return
         }
         log.warning("Retransmitting chunk \(chunkIndex + 1, privacy: .public) for \(messageId, privacy: .public)")
-        onWrite?(chunks[chunkIndex].base64EncodedData() + Data([0x0A]))
+        // Unlocked, this spliced a chunk into whatever message was mid-send —
+        // the retransmit is a repair, so it goes out at normal priority and
+        // whole.
+        guard (try? await acquireSendLock(.normal)) != nil else { return }
+        defer { releaseSendLock() }
+        writeLine(retained.chunks[chunkIndex])
     }
 
     func cleanup() {
