@@ -24,6 +24,22 @@ final class RPCClient {
     private var cleanupTask: Task<Void, Never>?
     private static let cleanupIntervalNs: UInt64 = 30 * 1_000_000_000
 
+    // One message's chunks must reach the wire contiguously. @MainActor is not
+    // enough: every `await` inside a send is a suspension point, so without a
+    // lock a ping, a media.nowPlaying.update and a multi-chunk OTA reply
+    // interleave their base64 lines on the single RFCOMM channel and the device
+    // reassembles garbage.
+    //
+    // Two queues, not one, because an OTA transfer is hundreds of chunks: bulk
+    // senders take the lock per chunk and normal waiters are always served
+    // first, so a status reply cuts into a transfer at the next chunk boundary
+    // instead of waiting out the whole thing.
+    private enum SendPriority { case normal, bulk }
+
+    private var sendMutexLocked = false
+    private var normalSendQueue: [CheckedContinuation<Void, Error>] = []
+    private var bulkSendQueue: [CheckedContinuation<Void, Error>] = []
+
     init(id: String) {
         self.id = id
         startPeriodicCleanup()
@@ -118,7 +134,7 @@ final class RPCClient {
             }
             let reply: RPCMessage = response.error.map { .error(id: id, error: $0) }
                 ?? .result(id: id, result: response.result ?? .nilValue)
-            await send(reply)
+            try? await send(reply, priority: Self.priorityForResponse(to: method))
         }
     }
 
@@ -137,27 +153,100 @@ final class RPCClient {
                 }
             }
             Task { @MainActor in
-                await self.send(msg)
+                do {
+                    try await self.send(msg, priority: Self.priority(forMethod: method))
+                } catch {
+                    // A send that never reached the wire must fail its call now
+                    // rather than sit out the 30 s timeout.
+                    if let cont = self.pendingRequests.removeValue(forKey: id) {
+                        self.pendingTimers.removeValue(forKey: id)?.cancel()
+                        cont.resume(throwing: error)
+                    }
+                }
             }
         }
     }
 
     func sendEvent(topic: String, data: MessagePackValue) async {
-        await send(.event(topic: topic, data: data))
+        try? await send(.event(topic: topic, data: data), priority: Self.priority(forMethod: topic))
     }
 
-    private func send(_ msg: RPCMessage) async {
+    private func send(_ msg: RPCMessage, priority: SendPriority) async throws {
         let encoded = msg.encoded()
         let messageId = msg.id
         let chunks = Chunking.createChunks(data: encoded, messageId: messageId)
         rememberChunks(chunks, messageId: messageId)
-        for (i, chunk) in chunks.enumerated() {
-            let line = chunk.base64EncodedData() + Data([0x0A])
-            onWrite?(line)
-            if i < chunks.count - 1 {
-                try? await Task.sleep(nanoseconds: 5 * 1_000_000)
+
+        // Normal traffic holds the lock for the whole message; bulk yields it
+        // between chunks so anything queued normal gets in.
+        if priority == .normal {
+            try await acquireSendLock(.normal)
+            defer { releaseSendLock() }
+            for chunk in chunks { writeLine(chunk) }
+            return
+        }
+        for chunk in chunks {
+            try await acquireSendLock(.bulk)
+            writeLine(chunk)
+            releaseSendLock()
+        }
+    }
+
+    private func writeLine(_ chunk: Data) {
+        onWrite?(chunk.base64EncodedData() + Data([0x0A]))
+    }
+
+    private func acquireSendLock(_ priority: SendPriority) async throws {
+        if !sendMutexLocked {
+            sendMutexLocked = true
+            return
+        }
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            switch priority {
+            case .normal: normalSendQueue.append(cont)
+            case .bulk: bulkSendQueue.append(cont)
             }
         }
+    }
+
+    private func releaseSendLock() {
+        // The lock is handed straight to the next waiter, never unlocked and
+        // re-acquired, so a bulk sender cannot starve a normal one by racing
+        // back around the loop.
+        if !normalSendQueue.isEmpty {
+            normalSendQueue.removeFirst().resume()
+        } else if !bulkSendQueue.isEmpty {
+            bulkSendQueue.removeFirst().resume()
+        } else {
+            sendMutexLocked = false
+        }
+    }
+
+    private func failSendWaiters() {
+        for cont in normalSendQueue + bulkSendQueue {
+            cont.resume(throwing: RPCError.disconnected)
+        }
+        normalSendQueue.removeAll()
+        bulkSendQueue.removeAll()
+        sendMutexLocked = false
+    }
+
+    // An OTA transfer is the only thing big enough to matter; everything else
+    // is small and latency-sensitive. Mirrors isBulkMethod in rpc-client.ts.
+    private static func priority(forMethod value: String) -> SendPriority {
+        switch value {
+        case "ota.chunk", "system.ota.chunk",
+             "ota.asset_range_chunk", "system.ota.asset_range_chunk":
+            return .bulk
+        default:
+            return .normal
+        }
+    }
+
+    // The transfer *reply* carries the payload, so it is bulk even though the
+    // method name is not in the list above.
+    private static func priorityForResponse(to method: String) -> SendPriority {
+        (method == "device.ota.transfer" || method == "ota.transfer") ? .bulk : .normal
     }
 
     private func rememberChunks(_ chunks: [Data], messageId: String) {
@@ -202,6 +291,7 @@ final class RPCClient {
         assembler.clear()
         sentChunks.removeAll()
         sentChunkOrder.removeAll()
+        failSendWaiters()
     }
 
     private func stripTrailingWhitespace(_ d: Data) -> Data {
