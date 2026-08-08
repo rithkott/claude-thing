@@ -13,6 +13,7 @@ final class RPCManager: ObservableObject {
     private let analytics: AnalyticsService?
     private let currentUserID: () -> String?
     private let ota = OTAService()
+    private let carThingOta = CarThingOTAService()
     let claudeRelay: ClaudeRelayService
 
     @Published private(set) var deviceInfo: CarThingInfo? = nil
@@ -32,6 +33,9 @@ final class RPCManager: ObservableObject {
     private var keepAliveFailures: [String: Int] = [:]
     private static let keepAliveFailureLimit = 2
     private var downloadedOTAFileURL: URL? = nil
+    private var activeCarThingUpdate: CarThingAvailableUpdate? = nil
+    private var carThingInstallTask: Task<Void, Never>? = nil
+    private var carThingRangeTasks: [String: Task<Void, Never>] = [:]
     private var authObservation: AnyCancellable?
     private var pendingVolumePercent: Int?
     private var volumeReportTask: Task<Void, Never>?
@@ -294,8 +298,317 @@ final class RPCManager: ObservableObject {
                     await client.retransmitChunk(messageId: messageId, chunkIndex: chunkIdx)
                 }
             }
+
+        case "ota.request_check":
+            Task { @MainActor [weak self] in await self?.handleCarThingOtaCheck(data) }
+
+        case "ota.request_install":
+            // One install at a time: a second request while one is downloading
+            // would race two writers onto the same artifact path.
+            if carThingInstallTask != nil {
+                log.info("Ignoring duplicate OTA install request while one is active")
+                return
+            }
+            carThingInstallTask = Task { @MainActor [weak self] in
+                await self?.handleCarThingOtaInstall(data)
+                self?.carThingInstallTask = nil
+            }
+
+        case "ota.asset_range":
+            Task { @MainActor [weak self] in await self?.handleCarThingAssetRange(data) }
+
+        case "ota.asset_range_abandon":
+            guard let requestId = Self.stringParam(data, "requestId", "request_id") else { return }
+            carThingRangeTasks.removeValue(forKey: requestId)?.cancel()
+
+        case "ota.complete":
+            cancelCarThingRangeTasks()
+            activeCarThingUpdate = nil
+            Task { [carThingOta] in await carThingOta.clearActiveUpdate(deleteArtifact: true) }
+
+        case "ota.error":
+            cancelCarThingRangeTasks()
+
         default:
             break
+        }
+    }
+
+    // MARK: - Car Thing OTA (v2 manifest)
+
+    private func cancelCarThingRangeTasks() {
+        for (_, task) in carThingRangeTasks { task.cancel() }
+        carThingRangeTasks.removeAll()
+    }
+
+    /// The device drives OTA over one link, so any connected client will do.
+    private func otaClient() -> RPCClient? {
+        connections.values.first?.client
+    }
+
+    private static func stringParam(_ value: MessagePackValue, _ camel: String, _ snake: String) -> String? {
+        value.mapValue(camel)?.stringValue ?? value.mapValue(snake)?.stringValue
+    }
+
+    /// The device may or may not restate its versions in the request; fall back
+    /// to what it told us in device.info. Pre-4.1 firmware has only `version`,
+    /// and CarThingOtaVersionLanes puts all three lanes there.
+    private func carThingLanes(_ params: MessagePackValue) -> CarThingOtaVersionLanes? {
+        let info = deviceInfo ?? deviceInfoByAddress.values.first
+        return CarThingOtaVersionLanes(
+            currentVersion: Self.stringParam(params, "currentVersion", "current_version") ?? info?.version,
+            imageVersion: Self.stringParam(params, "imageVersion", "image_version") ?? info?.imageVersion,
+            bandaidVersion: Self.stringParam(params, "bandaidVersion", "bandaid_version") ?? info?.bandaidVersion
+        )
+    }
+
+    private func handleCarThingOtaCheck(_ params: MessagePackValue) async {
+        guard let client = otaClient() else { return }
+        let channel = params.mapValue("channel")?.stringValue ?? "stable"
+
+        guard let lanes = carThingLanes(params) else {
+            await client.sendEvent(topic: "ota.check_result", data: .map([
+                (.string("available"), .bool(false)),
+                (.string("channel"), .string(channel)),
+                (.string("requiresReflash"), .bool(false)),
+                (.string("error"), .string("Device version is unavailable"))
+            ]))
+            return
+        }
+
+        do {
+            let check = try await carThingOta.checkUpdate(
+                currentVersion: lanes.currentVersion,
+                channel: channel,
+                imageVersion: lanes.imageVersion,
+                bandaidVersion: lanes.bandaidVersion
+            )
+            await sendCarThingCheckResult(client, update: check.update, channel: check.channel)
+        } catch {
+            log.error("Car Thing OTA check failed: \(error.localizedDescription, privacy: .public)")
+            await client.sendEvent(topic: "ota.check_result", data: .map([
+                (.string("available"), .bool(false)),
+                (.string("channel"), .string(channel)),
+                (.string("requiresReflash"), .bool(false)),
+                (.string("error"), .string(error.localizedDescription))
+            ]))
+        }
+    }
+
+    private func sendCarThingCheckResult(
+        _ client: RPCClient,
+        update: CarThingAvailableUpdate?,
+        channel: String
+    ) async {
+        await client.sendEvent(topic: "ota.check_result", data: .map([
+            (.string("available"), .bool(update != nil)),
+            (.string("version"), update.map { .string($0.version) } ?? .nilValue),
+            (.string("kind"), update.map { .string($0.kind.rawValue) } ?? .nilValue),
+            (.string("channel"), .string(channel)),
+            (.string("requiresReflash"), .bool(update?.requiresReflash ?? false)),
+            (.string("flashthingZipUrl"), update?.flashthingZipURL.map { .string($0) } ?? .nilValue)
+        ]))
+    }
+
+    private func handleCarThingOtaInstall(_ params: MessagePackValue) async {
+        guard let client = otaClient() else { return }
+        let channel = params.mapValue("channel")?.stringValue ?? "stable"
+        var beganUpdateId: String?
+
+        do {
+            guard let lanes = carThingLanes(params) else {
+                throw RPCDispatchError("Device version is unavailable")
+            }
+            let check = try await carThingOta.checkUpdate(
+                currentVersion: lanes.currentVersion,
+                channel: channel,
+                imageVersion: lanes.imageVersion,
+                bandaidVersion: lanes.bandaidVersion
+            )
+            guard let update = check.update else {
+                throw RPCDispatchError("No update is available to install")
+            }
+
+            // The device asked to install something specific. If the manifest
+            // has moved on since its check, tell it what is actually there
+            // rather than installing a different build under the old label.
+            let wantVersion = Self.stringParam(params, "targetVersion", "target_version")
+            let wantKind = Self.stringParam(params, "targetKind", "target_kind")
+            if (wantVersion != nil && wantVersion != update.version)
+                || (wantKind != nil && wantKind != update.kind.rawValue) {
+                await sendCarThingCheckResult(client, update: update, channel: check.channel)
+                log.warning("Refusing changed OTA target \(wantVersion ?? "*", privacy: .public)/\(wantKind ?? "*", privacy: .public); latest is \(update.version, privacy: .public)/\(update.kind.rawValue, privacy: .public)")
+                return
+            }
+            if update.requiresReflash {
+                throw RPCDispatchError("This update requires a full reflash")
+            }
+
+            let begin = try await client.call(method: "ota.begin", params: .map([
+                (.string("kind"), .string(update.kind.rawValue)),
+                (.string("updateId"), .string(update.updateId)),
+                (.string("updateUrlBase"), .string(update.updateUrlBase)),
+                (.string("expectedSha256"), .string(update.expectedSha256)),
+                (.string("expectedSize"), .int(Int64(update.expectedSize)))
+            ]))
+            beganUpdateId = update.updateId
+            let resumeFromOffset = begin.mapValue("resumeFromOffset")?.intValue
+                ?? begin.mapValue("resume_from_offset")?.intValue ?? 0
+
+            // Progress is rate-limited to every 5% or 15 s: each report is an
+            // RPC round trip over a 2 KB/s-ish RFCOMM link shared with the
+            // download it is reporting on.
+            let reporter = OTAProgressReporter(client: client, updateId: update.updateId, log: log)
+            _ = try await carThingOta.preparePrimaryArtifact(update) { downloaded, total in
+                await reporter.report(downloaded: downloaded, total: total)
+            }
+
+            try await carThingOta.rememberActiveUpdate(update)
+            activeCarThingUpdate = update
+
+            // The negotiation fields are the whole point of this event. 4.1
+            // reads them at msgpack.rs:598-639; omit them and it falls back to
+            // OTA_LEGACY_PULL_SIZE — 1800-byte windows instead of 128 KiB, i.e.
+            // a transfer roughly 70x slower.
+            await client.sendEvent(topic: "ota.package_ready", data: .map([
+                (.string("updateId"), .string(update.updateId)),
+                (.string("version"), .string(update.version)),
+                (.string("size"), .int(Int64(update.expectedSize))),
+                (.string("expectedSha256"), .string(update.expectedSha256)),
+                (.string("resumeFromOffset"), .int(Int64(resumeFromOffset))),
+                (.string("maxTransferChunkSize"), .int(Int64(OTATransfer.maxWindowBytes))),
+                (.string("supportsChunkedTransferResponse"), .bool(true)),
+                (.string("transferDataEncoding"), .string("msgpack_binary"))
+            ]))
+        } catch {
+            log.error("Car Thing OTA install failed: \(error.localizedDescription, privacy: .public)")
+            // The device is holding a slot open for an update that is not
+            // coming; tell it so rather than leaving it to time out.
+            if let beganUpdateId {
+                _ = try? await client.call(method: "ota.abandon", params: .map([
+                    (.string("updateId"), .string(beganUpdateId))
+                ]))
+            }
+        }
+    }
+
+    private func handleCarThingAssetRange(_ params: MessagePackValue) async {
+        guard let client = otaClient() else { return }
+        guard let requestId = Self.stringParam(params, "requestId", "request_id") else { return }
+
+        carThingRangeTasks.removeValue(forKey: requestId)?.cancel()
+        let task = Task { @MainActor [weak self] () -> Void in
+            await self?.serveCarThingAssetRange(client, requestId: requestId, params: params)
+        }
+        carThingRangeTasks[requestId] = task
+        await task.value
+        if carThingRangeTasks[requestId] == task { carThingRangeTasks[requestId] = nil }
+    }
+
+    private func serveCarThingAssetRange(
+        _ client: RPCClient,
+        requestId: String,
+        params: MessagePackValue
+    ) async {
+        var replied = false
+        var failurePartIndex = 0
+        var failureOffset = 0
+
+        do {
+            let update: CarThingAvailableUpdate
+            if let active = activeCarThingUpdate {
+                update = active
+            } else if let persisted = await carThingOta.activeUpdate() {
+                activeCarThingUpdate = persisted
+                update = persisted
+            } else {
+                throw RPCDispatchError("No active OTA range session")
+            }
+
+            let updateId = Self.stringParam(params, "updateId", "update_id")
+            guard updateId == update.updateId else {
+                throw RPCDispatchError("Unknown OTA update ID")
+            }
+            let assetName = params.mapValue("asset")?.stringValue
+            guard let asset = update.rangeAssets.first(where: { $0.name == assetName }) else {
+                throw RPCDispatchError("Unknown OTA range asset \(assetName ?? "")")
+            }
+            let ranges = try Self.parseRanges(params.mapValue("ranges"), asset: asset)
+
+            _ = try await client.call(method: "ota.asset_range_reply", params: .map([
+                (.string("requestId"), .string(requestId)),
+                (.string("totalSize"), .int(Int64(asset.size))),
+                (.string("parts"), .array(ranges.map { range in
+                    .map([
+                        (.string("start"), .int(Int64(range.start))),
+                        (.string("length"), .int(Int64(range.length)))
+                    ])
+                }))
+            ]))
+            replied = true
+
+            for (partIndex, range) in ranges.enumerated() {
+                var cursor = 0
+                while cursor < range.length {
+                    if Task.isCancelled { return }
+                    let length = min(OTATransfer.maxWindowBytes, range.length - cursor)
+                    let offset = range.start + cursor
+                    failurePartIndex = partIndex
+                    failureOffset = offset
+                    let bytes = try await carThingOta.fetchAssetRange(
+                        update, asset: asset, start: offset, length: length
+                    )
+                    cursor += length
+                    let last = partIndex == ranges.count - 1 && cursor == range.length
+                    _ = try await client.call(method: "ota.asset_range_chunk", params: .map([
+                        (.string("requestId"), .string(requestId)),
+                        (.string("partIndex"), .int(Int64(partIndex))),
+                        (.string("offset"), .int(Int64(offset))),
+                        (.string("bytes"), .data(bytes)),
+                        (.string("last"), .bool(last))
+                    ]), timeout: 60)
+                    // Breathing room for the device to flush to flash before the
+                    // next window lands.
+                    if !last { try? await Task.sleep(nanoseconds: 15_000_000) }
+                }
+            }
+        } catch {
+            if Task.isCancelled { return }
+            log.error("OTA asset range \(requestId, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            // Once the reply has gone out the device is waiting for chunks, so
+            // the only way to end the transfer is an empty final chunk;
+            // before that, an outright rejection is still possible.
+            if replied {
+                _ = try? await client.call(method: "ota.asset_range_chunk", params: .map([
+                    (.string("requestId"), .string(requestId)),
+                    (.string("partIndex"), .int(Int64(failurePartIndex))),
+                    (.string("offset"), .int(Int64(failureOffset))),
+                    (.string("bytes"), .data(Data())),
+                    (.string("last"), .bool(true))
+                ]))
+            } else {
+                _ = try? await client.call(method: "ota.asset_range_rejected", params: .map([
+                    (.string("requestId"), .string(requestId)),
+                    (.string("reason"), .string(error.localizedDescription))
+                ]))
+            }
+        }
+    }
+
+    private static func parseRanges(
+        _ value: MessagePackValue?,
+        asset: CarThingOtaAsset
+    ) throws -> [(start: Int, length: Int)] {
+        guard let entries = value?.arrayValue, !entries.isEmpty else {
+            throw RPCDispatchError("OTA range request has no ranges")
+        }
+        return try entries.enumerated().map { index, entry in
+            let start = entry.mapValue("start")?.intValue ?? -1
+            let length = entry.mapValue("length")?.intValue ?? -1
+            guard start >= 0, length > 0, start + length <= asset.size else {
+                throw RPCDispatchError("Invalid OTA range \(index) for \(asset.name)")
+            }
+            return (start, length)
         }
     }
 
