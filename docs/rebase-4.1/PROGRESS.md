@@ -18,7 +18,7 @@ remainder under **Next action** below. Never end a session with a dirty tree.
 
 ## Next action
 
-> Phase 4 — retire the nocturned patches.
+> Phase 5 — vendor the Mac app into mac/Nocturne/.
 
 ## Worktree setup (needed once per fresh worktree)
 
@@ -54,10 +54,14 @@ ln -s ../../claude-thing/emulator/node_modules   emulator/node_modules
       the only entry script and served a blank page — `static-server.js` now applies the rewrite
       only to a bundle that carries a `nomodule` twin. Verified live on the emulator: stock 4.1
       UI and the grafted `/claude/` app both render, WS smoke green.
-- [ ] **4 — Retire the nocturned patches.** Delete `patches/nocturned-claude-forward.patch` (4.1
-      forwards natively, NOTES §2), `patches/nocturned-spp-reregister.patch` (deferred, NOTES §6),
-      `scripts/build-nocturned.sh`, `scripts/nocturned.Dockerfile`. Retarget or drop
-      `patches/nocturne-ui-claude-mode.patch`.
+- [x] **4 — Retire the nocturned patches.** Deleted both `nocturned-*.patch`, `build-nocturned.sh`
+      and `nocturned.Dockerfile`. `nocturne-ui-claude-mode.patch` retargeted onto
+      `packages/ui/src/components/settings/Settings.tsx` (checked against v4.1.0: the item still
+      belongs in `settingsStructure.general.items` before `factory-reset`, ~:119, and `handleAction`
+      is still an untyped switch, ~:365). **Pulled forward from phase 7 because they referenced the
+      deleted files:** `release.yml` lost the cross-compile job + `NOCTURNED_EPOCH` cache key,
+      `NOCTURNE_IMAGE_TAG` → `v4.1.0`, `--nocturned` flag dropped; `protocol/claude-protocol.md`
+      and `patches/swift-connector.md` now describe the forwarding registry.
 - [ ] **5 — Vendor the Mac app.** Copy `macos/` from `nocturne-connector@41f4d048…` to
       `mac/Nocturne/`; fold `patches/swift/ClaudeRelayService.swift` in as a normal file and write
       its call sites directly into `RPCManager.swift`, `NocturneApp.swift`, `SessionStore.swift`,
