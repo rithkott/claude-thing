@@ -84,6 +84,9 @@ final class OTAService: Sendable {
     }
 
     func readChunk(at url: URL, offset: Int, size: Int) async throws -> String {
+        // The device names the window, so an absurd `size` used to be a
+        // straight allocation of that many bytes here.
+        try OTATransfer.requireWindow(size)
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw OTAError("Update file not found")
         }

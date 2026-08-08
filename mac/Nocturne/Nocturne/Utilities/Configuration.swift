@@ -7,7 +7,20 @@ enum AppConfig {
     static let spotifyClientID = "65b708073fc0480ea92a077233ca87bd"
 
     static let nocturneSiteURL = URL(string: "https://usenocturne.com/")!
-    static let otaServerURL = URL(string: "https://ota.usenocturne.com")!
+
+    // Overridable so a staging OTA server can be pointed at without a rebuild,
+    // matching config.ts's NOCTURNE_OTA_SERVER_URL. A malformed override falls
+    // back to production rather than crashing the app on launch.
+    static let otaServerURL: URL = {
+        let fallback = URL(string: "https://ota.usenocturne.com")!
+        guard let raw = ProcessInfo.processInfo.environment["NOCTURNE_OTA_SERVER_URL"],
+              !raw.trimmingCharacters(in: .whitespaces).isEmpty,
+              let url = URL(string: raw.trimmingCharacters(in: .whitespaces)),
+              url.scheme != nil else {
+            return fallback
+        }
+        return url
+    }()
 
     static let rfcommUUID = "00001101-0000-1000-8000-00805f9b34fb"
 
