@@ -11,6 +11,7 @@ import {
   HOST, HTTP_PORT, WS_PORT, PID_FILE, LOG_DIR,
   CHROME_PROFILE_DIR, EMULATOR_URL, CACHE_DIR, PROJECT_ROOT,
   WINDOW_W, WINDOW_H, CDP_PORT, JS_HEAP_MB, CPU_THROTTLE_RATE,
+  ROOT_PARTITIONS,
 } from '../src/config.js';
 import { resolveFirmware } from '../src/firmware.js';
 
@@ -137,7 +138,7 @@ async function startDaemon() {
 console.log('resolving latest firmware…');
 const fw = resolveFirmware();
 console.log(`firmware: ${path.basename(fw.zipPath)}`);
-console.log(`version:  ${fw.version.version || 'unknown'} (slot ${fw.slot}, ${fw.cached ? 'cached' : 'freshly extracted'})`);
+console.log(`version:  ${fw.version.version || 'unknown'} (${ROOT_PARTITIONS[fw.slot]}, ${fw.cached ? 'cached' : 'freshly extracted'})`);
 
 buildAndGraftClaudeApp(fw.uiDir);
 await startDaemon();

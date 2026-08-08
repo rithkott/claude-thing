@@ -50,10 +50,15 @@ screen (`clip-path` hit-testing).
 node scripts/deploy-dev.js     # or: npm run deploy   (or tell Claude "deploy to dev")
 ```
 
-Finds the newest `nocturne*.zip` containing a `system_*.ext2` rootfs in
-`<project>/firmware/`, `~/Desktop`, `~/Downloads` → extracts `/etc/nocturne/ui`
-(and `/usr/share/fonts`) via debugfs (cached per zip+mtime) → restarts the
-server → opens a Chrome app-mode window.
+Finds the newest Nocturne 4.1 zip (`superbird.wic` + `meta.json`) in
+`<project>/firmware/`, `~/Desktop`, `~/Downloads` → carves `root_a` out of the
+wic by GPT offset → extracts `/usr/lib/nocturne/webapps/ui` (and
+`/usr/share/fonts`) via debugfs (cached per zip+mtime) → restarts the server →
+opens a Chrome app-mode window.
+
+The carve streams (`unzip -p | tail -c | head -c`), so the 1.43 GB wic is never
+written to disk in full. 4.0.7-era zips of flat `system_[ab].ext2` slots are no
+longer supported.
 
 Requirements: Node ≥18, `unzip`, `zipinfo`, and e2fsprogs
 (`brew install e2fsprogs`).
@@ -69,7 +74,7 @@ it to press; hold to long-press.
 | `EMU_CPU_THROTTLE` | `8` | CDP CPU throttle factor (≈ one A53 @1.8GHz vs an Apple Silicon core). **`0` to disable for fast dev iteration** |
 | `EMU_JS_HEAP_MB` | `200` | `--max-old-space-size` V8 heap cap (device: 512MB total, shared). `0` = uncapped |
 | `EMU_INPUT_POLL_MS` | `40` | gpio-keys-polled quantization for buttons. `0` = instant dispatch |
-| `EMU_FORCE_LEGACY` | on | `0` = serve the modern module chunks instead of the chrome69 legacy path |
+| `EMU_FORCE_LEGACY` | on | `0` = serve the modern module chunks instead of the chrome69 legacy path. No-op on 4.1+, whose UI ships module-only with no `nomodule` twin |
 | `EMU_DEVICE_FONTS` | on | `0` = macOS font fallbacks |
 | `EMU_CDP_PORT` | `9223` | Chrome remote-debugging port used for throttling |
 | `EMU_CHROME_BIN` | — | Alternate browser binary (e.g. an old Chromium build) launched with the same flags |
