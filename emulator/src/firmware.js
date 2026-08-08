@@ -139,9 +139,13 @@ function carvePartition(zipPath, part, destPath) {
 // Version lives only in the filename now: 4.1 dropped /etc/nocturne/version.json
 // (the floor carries /etc/nocturne/floor-version, which is a bare ordinal, not
 // the release string the UI shows).
+// Stops at the first `_`, because an injected zip is named
+// nocturne_v4.1.0_claude_2.0.0.zip and the firmware version is the v4.1.0 part
+// — the rest is our own release. A `-dev`-style prerelease suffix is kept.
 function versionFromZipName(zipPath) {
-  // basename minus ".zip", or the extension gets swallowed by the suffix class.
-  const m = path.basename(zipPath, path.extname(zipPath)).match(/v\d+\.\d+\.\d+[\w.-]*/);
+  // basename minus ".zip" too, or a prerelease suffix swallows the extension.
+  const base = path.basename(zipPath, path.extname(zipPath));
+  const m = base.match(/v\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?/);
   const v = m ? m[0] : 'unknown';
   return { version: v, shortVersion: v };
 }

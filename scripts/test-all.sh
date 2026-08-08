@@ -57,7 +57,8 @@ run "webpage builds" npm --prefix webpage run build
 
 step "Firmware tooling"
 if node emulator/src/firmware.js --check > /tmp/claude-thing-fw.log 2>&1; then
-  ok "firmware extraction ($(grep -oE 'v[0-9.]+[^ ]*' /tmp/claude-thing-fw.log | head -1))"
+  # the version line, not the zip path — the filename matches the same pattern
+  ok "firmware extraction ($(sed -n 's/^version: *//p' /tmp/claude-thing-fw.log | head -1))"
 else
   bad "firmware extraction"
   tail -5 /tmp/claude-thing-fw.log | sed 's/^/       /'
