@@ -18,7 +18,7 @@ remainder under **Next action** below. Never end a session with a dirty tree.
 
 ## Next action
 
-> Phase 7 — release plumbing and docs.
+> Phase 8 — verification.
 
 ## Worktree setup (needed once per fresh worktree)
 
@@ -94,9 +94,16 @@ ln -s ../../claude-thing/emulator/node_modules   emulator/node_modules
     - **Correction to NOTES §5f:** the transfer window is **128 KiB**, not 256 KiB.
       `MAX_OTA_TRANSFER_WINDOW_BYTES` in `ota-transfer.ts` is `128 * 1024`; 256 KiB is the
       *device-side* `OTA_MAX_PULL_WINDOW_SIZE`. The connector advertises the tighter of the two.
-- [ ] **7 — Release plumbing and docs.** `release.yml:32` → `v4.1.0`, drop the nocturned job and its
-      cache keys; DMG job builds the vendored tree; `README.md:7-8,12,108`;
-      `protocol/claude-protocol.md:245-248`; `carthing-knowledge/*`.
+- [x] **7 — Release plumbing and docs.** `release.yml` and `claude-protocol.md` were done in
+      phase 4; this phase did `README.md` (4.1, daemon unmodified, new zip name/size, repo table)
+      and `carthing-knowledge/*`. The knowledge base is **banner-marked, not rewritten**: its
+      device-behaviour half (the :5000 envelope, MsgPack/SPP framing, input handling, hardware) is
+      still correct, so each stale file states what 4.1 moved and points at `NOTES.md`.
+      **Bug caught here:** the phase-5 rewrite of `build-connector-dmg.sh` had made Developer ID +
+      notarization the no-argument default, which would have failed every CI release —
+      `release.yml` invokes it bare on a runner with no certificate. `--local` is the default
+      again; `--developer-id` opts in. DMG verified end to end (5.1 MB, mounts, adhoc-signed
+      universal app carrying the relay and the OTA service).
 - [ ] **8 — Verification.** Injector round-trip; emulator + CDP screenshots; `scripts/test-all.sh`;
       updated `smoke-ws.js`; then hardware — DMG installed, real Car Thing flashed with the injected
       zip, `bridge.status` reporting `bt.connected` and a live `claude.sessions.update`.
