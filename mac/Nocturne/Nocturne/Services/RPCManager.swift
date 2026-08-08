@@ -520,13 +520,22 @@ final class RPCManager: ObservableObject {
     }
 
     private func parseDeviceInfo(_ value: MessagePackValue) -> CarThingInfo {
-        CarThingInfo(
+        // 4.1 canonicalised these to snake_case and only down-converts for web
+        // companions, so read either spelling rather than betting on which side
+        // of that conversion a given daemon build sits. Mirrors
+        // normalizeDeviceInfo in nocturne-manager.ts.
+        func field(_ camel: String, _ snake: String) -> String? {
+            value.mapValue(camel)?.stringValue ?? value.mapValue(snake)?.stringValue
+        }
+        return CarThingInfo(
             device: value.mapValue("device")?.stringValue,
             version: value.mapValue("version")?.stringValue,
-            fullVersion: value.mapValue("fullVersion")?.stringValue,
-            buildDate: value.mapValue("buildDate")?.stringValue,
-            gitHash: value.mapValue("gitHash")?.stringValue,
-            serialNumber: value.mapValue("serialNumber")?.stringValue
+            fullVersion: field("fullVersion", "full_version"),
+            imageVersion: field("imageVersion", "image_version"),
+            bandaidVersion: field("bandaidVersion", "bandaid_version"),
+            buildDate: field("buildDate", "build_date"),
+            gitHash: field("gitHash", "git_hash"),
+            serialNumber: field("serialNumber", "serial_number")
         )
     }
 
