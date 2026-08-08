@@ -221,8 +221,29 @@ final class BluetoothService: ObservableObject {
     private static let probeBondWaitAttempts = 30
     private static let probeBondWaitDelay: UInt64 = 1_000_000_000
     private static let aclFallbackInitialDelay: UInt64 = 2_000_000_000
-    private static let aclFallbackRetryDelay: UInt64 = 3_000_000_000
+    // Reconnect backs off instead of retrying at a flat rate: a Car Thing that
+    // is rebooting, out of range, or refusing SPP is not going to answer any
+    // sooner for being asked eight times in twenty-four seconds, and each
+    // attempt is a real RFCOMM open with a 6 s timeout behind it. The ladder is
+    // DEFAULT_RECONNECT_DELAYS_MS from bluetooth-service.ts; attempts past its
+    // end stay at the last rung.
+    private static let reconnectDelaysNs: [UInt64] = [
+        1_000_000_000,
+        2_000_000_000,
+        4_000_000_000,
+        8_000_000_000,
+        16_000_000_000,
+        30_000_000_000,
+    ]
+    /// Someone else is already dialling this address — a short poll, not a
+    /// backoff step, because we are waiting on a peer attempt rather than
+    /// recovering from a failed one.
+    private static let aclFallbackPollDelay: UInt64 = 1_000_000_000
     private static let aclFallbackAttempts = 8
+
+    private static func reconnectDelay(afterAttempt attempt: Int) -> UInt64 {
+        reconnectDelaysNs[min(max(attempt - 1, 0), reconnectDelaysNs.count - 1)]
+    }
 
     private func respondToProbe(from address: String) {
         if inFlightConnects.contains(address) {
@@ -358,7 +379,7 @@ final class BluetoothService: ObservableObject {
                     return
                 }
                 if self.inFlightConnects.contains(address) {
-                    try? await Task.sleep(nanoseconds: Self.aclFallbackRetryDelay)
+                    try? await Task.sleep(nanoseconds: Self.aclFallbackPollDelay)
                     continue
                 }
 
@@ -375,7 +396,9 @@ final class BluetoothService: ObservableObject {
                 if opened { return }
 
                 if attempt < Self.aclFallbackAttempts {
-                    try? await Task.sleep(nanoseconds: Self.aclFallbackRetryDelay)
+                    let delay = Self.reconnectDelay(afterAttempt: attempt)
+                    self.log.info("RFCOMM reconnect to \(address, privacy: .public) failed; next attempt in \(delay / 1_000_000_000, privacy: .public)s")
+                    try? await Task.sleep(nanoseconds: delay)
                 }
             }
 
