@@ -18,7 +18,13 @@ remainder under **Next action** below. Never end a session with a dirty tree.
 
 ## Next action
 
-> Phase 8 — verification.
+> Phase 9 — claim 2.0.0, open the PR against `dev`, merge, watch `release.yml`.
+>
+> Carry forward: the hardware leg of phase 8 is **not done** — it needs a real Car
+> Thing. Flash `nocturne_v4.1.0_claude_2.0.0.zip`, install the DMG, and confirm
+> `bridge.status` reports `bt.connected` plus a live `claude.sessions.update`.
+> First thing to suspect if it is quiet: 4.1 refuses SPP from unpaired peers
+> (NOTES §5e), and a phone connecting after the Mac steals the app route (§2).
 
 ## Worktree setup (needed once per fresh worktree)
 
@@ -104,9 +110,18 @@ ln -s ../../claude-thing/emulator/node_modules   emulator/node_modules
       `release.yml` invokes it bare on a runner with no certificate. `--local` is the default
       again; `--developer-id` opts in. DMG verified end to end (5.1 MB, mounts, adhoc-signed
       universal app carrying the relay and the OTA service).
-- [ ] **8 — Verification.** Injector round-trip; emulator + CDP screenshots; `scripts/test-all.sh`;
-      updated `smoke-ws.js`; then hardware — DMG installed, real Car Thing flashed with the injected
-      zip, `bridge.status` reporting `bt.connected` and a live `claude.sessions.update`.
+- [x] **8 — Verification, except hardware.** Injector round-trip on the real v4.1.0 zip: 16 files /
+      588 KB at `/usr/lib/nocturne/webapps/ui/claude` in both slots owned `0:0`, `switch.js` grafted
+      into all three `index.html`s, `e2fsck` clean, `meta.json` + all four members intact, wic still
+      1,430,275,072 bytes, and a region-by-region SHA-256 showing **only** `root_a`/`root_b`
+      changed. The injected zip then through the emulator, which carves `root_a` and finds the
+      claude tree already present before any local graft. `test-all.sh --full` green (192 daemon +
+      123 device assertions, three builds, extraction, WS hub round trip); `smoke-ws.js` green;
+      CDP screenshots of both UIs. DMG built and mounted. **Two bugs found and fixed:** the
+      emulator read an injected zip's version as `v4.1.0_claude`, and `test-all.sh` printed the zip
+      path instead of the version.
+      - [ ] **Hardware — NOT DONE, needs the device.** Flash the injected zip, install the DMG,
+            confirm `bridge.status` → `bt.connected` and a live `claude.sessions.update`.
 - [ ] **9 — Claim, clean, ship.** Rebase on `origin/dev`, append the `2.0.0` row to `RELEASES.md`,
       `release: claim 2.0.0 — nocturne-41`, `gh pr create --fill --base dev`, squash-merge, watch
       `release.yml`, refresh the GitNexus index, remove the worktree. Decide whether
