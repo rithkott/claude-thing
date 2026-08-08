@@ -224,7 +224,12 @@ final class AuthService: ObservableObject {
               let access = decoded?.access_token,
               let refresh = decoded?.refresh_token else {
             let msg = decoded.flatMap { $0.error_description ?? $0.error ?? $0.msg ?? $0.message }
-            if Self.isDefinitiveAuthFailure(http.statusCode, message: msg) {
+            if Self.isRetryableAuthFailure(http.statusCode) {
+                // The refresh loop's backoff is the retry; the session is
+                // untouched, so the user stays signed in through a Supabase
+                // outage or a rate limit.
+                log.warning("Supabase token refresh returned retryable HTTP \(http.statusCode, privacy: .public) — keeping the session")
+            } else if Self.isDefinitiveAuthFailure(http.statusCode, message: msg) {
                 log.error("Supabase session no longer valid (HTTP \(http.statusCode, privacy: .public)): \(msg ?? "no detail", privacy: .public) — signing out")
                 store.clearSupabaseTokens()
                 accessTokenExpiresAt = nil
@@ -244,11 +249,42 @@ final class AuthService: ObservableObject {
         status.authenticated = true
     }
 
-    private static func isDefinitiveAuthFailure(_ statusCode: Int, message: String?) -> Bool {
-        guard statusCode == 400 || statusCode == 401 || statusCode == 403 else { return false }
-        guard let msg = message?.lowercased(), !msg.isEmpty else { return false }
-        return ["refresh", "invalid", "not found", "expired", "revoked", "already used"]
-            .contains { msg.contains($0) }
+    // Supabase's own vocabulary for "this session is gone, re-authenticate".
+    // Anything outside it is a server or transport problem, not a verdict on
+    // the user's session. Mirrors DEFINITIVE_PATTERNS in auth-service.ts.
+    private static let definitivePatterns = [
+        "refresh_token_not_found",
+        "refresh_token_already_used",
+        "invalid_grant",
+        "invalid_token",
+        "session_not_found",
+        "user_not_found",
+        "invalid refresh token",
+    ]
+
+    // resilient-auth-fetch.ts remaps these on the refresh endpoint so the
+    // client retries instead of surfacing them: 408 request timeout, 425 too
+    // early, 429 rate limited, plus anything 5xx. 0 stands for "no response".
+    private static let retryableStatuses: Set<Int> = [0, 408, 425, 429]
+
+    static func isRetryableAuthFailure(_ statusCode: Int) -> Bool {
+        retryableStatuses.contains(statusCode) || statusCode >= 500
+    }
+
+    /// Status first, message second.
+    ///
+    /// The old test was 400/401/403 with a message merely *containing*
+    /// "invalid" — which signed the user out on, say, a 400 "invalid request
+    /// body" from a proxy, and equally on a 429 whose body happened to mention
+    /// an invalid rate. Now: retryable statuses are never definitive; 401 and
+    /// 403 always are; 400 and everything else only when the message carries a
+    /// Supabase pattern that actually means the session is gone.
+    /// Mirrors isDefinitiveAuthError in auth-service.ts.
+    static func isDefinitiveAuthFailure(_ statusCode: Int, message: String?) -> Bool {
+        if isRetryableAuthFailure(statusCode) { return false }
+        let msg = message?.lowercased() ?? ""
+        if statusCode == 401 || statusCode == 403 { return true }
+        return definitivePatterns.contains { msg.contains($0) }
     }
 
     private static func jwtExpiry(_ jwt: String) -> Date? {
