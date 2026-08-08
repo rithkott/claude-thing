@@ -8,6 +8,10 @@ import { logInfo } from './log.js';
 
 export function buildPhoneSim({ emit }) {
   let appReadySent = false;
+  // The daemon's AppReadyRegistry only routes forwarded methods once an
+  // app.ready has actually landed; before that every unknown method gets
+  // "No active app session". Track the emit, not the scheduling.
+  let registered = false;
   let heartbeatTimer = null;
 
   function appReadyData() {
@@ -37,6 +41,7 @@ export function buildPhoneSim({ emit }) {
     }, 400);
     setTimeout(() => {
       logInfo('phone-sim: emitting app.ready');
+      registered = true;
       emit('app.ready', appReadyData());
       heartbeatTimer = setInterval(() => emit('daemon.heartbeat', {}), 10_000);
     }, 900);
@@ -72,5 +77,5 @@ export function buildPhoneSim({ emit }) {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
   }
 
-  return { methods, onClientConnect, stop };
+  return { methods, onClientConnect, stop, isRegistered: () => registered };
 }

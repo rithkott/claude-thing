@@ -1,307 +1,222 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Builds a Nocturne.app DMG with the claude-thing relay in it.
+# Builds the Nocturne.app DMG with the claude-thing relay in it.
 #
-# Works on a *copy* of a nocturne-connector checkout, so your own checkout is
-# never modified. The copy lands in build/connector/ and is reused between runs
-# only if you pass --keep.
+# The app source is vendored at mac/Nocturne/ — see mac/Nocturne/README.md for
+# where it came from and why it is not fetched. Nothing is cloned or patched at
+# build time any more; the relay and its call sites are ordinary tracked source.
 #
 # Usage:
-#   scripts/build-connector-dmg.sh [--connector <path>] [--keep] [-- <dmg args>]
+#   scripts/build-connector-dmg.sh                  # ad-hoc signed DMG (the default)
+#   scripts/build-connector-dmg.sh --skip-notarize  # Developer ID DMG, no notary submit
+#   scripts/build-connector-dmg.sh --developer-id   # Developer ID DMG + notarization
 #
-#   --connector <path>  an existing nocturne-connector checkout (default: fetch
-#                       https://github.com/usenocturne/nocturne-connector at
-#                       $CONNECTOR_REF, the pinned commit below)
-#   --keep              don't delete a previous build/connector copy first
-#   everything after -- is passed to the connector's own
-#   scripts/build-macos-dmg.sh (default: --local, an ad-hoc signed DMG; use
-#   --skip-notarize or nothing at all if you have a Developer ID cert)
+# --local is the default because release.yml runs this on a hosted macOS runner
+# with no Developer ID certificate and no notary profile; defaulting to a signed
+# build would fail every CI release.
+#
+# Env overrides:
+#   SCHEME                   Xcode scheme (default: Nocturne)
+#   TEAM_ID                  Apple Developer team ID (default: A8CCNQDH4A)
+#   NOTARY_PROFILE           notarytool keychain profile (default: nocturne-notary)
+#   CLAUDE_THING_BUILD_DIR   where to build (default: a temp dir — see below)
 #
 # Requires: macOS, Xcode, python3. The DMG lands in dist/.
+#
+# Derived from nocturne-connector's scripts/build-macos-dmg.sh (Apache-2.0),
+# adapted to the vendored tree's layout and output naming.
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# The upstream commit the connector is built from — see the clone below.
-CONNECTOR_REF="${CONNECTOR_REF:-41f4d048912d3e9a7e664ad7b9a2526c323f2c55}"
-CONNECTOR_SRC=""
-KEEP=0
-DMG_ARGS=(--local)
-
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --connector) CONNECTOR_SRC="$2"; shift 2 ;;
-    --keep) KEEP=1; shift ;;
-    --) shift; DMG_ARGS=("$@"); break ;;
-    *) echo "unknown argument: $1" >&2; exit 2 ;;
+SKIP_NOTARIZE=1
+LOCAL_BUILD=1
+for arg in "$@"; do
+  case "$arg" in
+    --skip-notarize) LOCAL_BUILD=0; SKIP_NOTARIZE=1 ;;
+    --developer-id) LOCAL_BUILD=0; SKIP_NOTARIZE=0 ;;
+    --local) LOCAL_BUILD=1; SKIP_NOTARIZE=1 ;;
+    *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+APP_SRC="${REPO_ROOT}/mac/Nocturne"
+
+PROJECT="${APP_SRC}/Nocturne.xcodeproj"
+SCHEME="${SCHEME:-Nocturne}"
+APP_NAME="Nocturne"
+TEAM_ID="${TEAM_ID:-A8CCNQDH4A}"
+EXPORT_OPTIONS="${APP_SRC}/ExportOptions.plist"
+DMG_ASSETS_DIR="${APP_SRC}/dmg-assets"
+DMG_BACKGROUND="${DMG_ASSETS_DIR}/background.png"
+DMG_SETTINGS="${DMG_ASSETS_DIR}/dmg-settings.py"
+NOTARY_PROFILE="${NOTARY_PROFILE:-nocturne-notary}"
 
 # Built outside the repo on purpose. A repo under ~/Desktop or ~/Documents is
 # typically an iCloud-synced folder, and the sync daemon stamps
 # com.apple.fileprovider / com.apple.FinderInfo onto files as they are written.
 # Those attributes land on the .app mid-build and codesign refuses it with
 # "resource fork, Finder information, or similar detritus not allowed" — a
-# failure that has nothing to do with the code. Override with
-# CLAUDE_THING_BUILD_DIR if you want it somewhere specific.
-BUILD_DIR="${CLAUDE_THING_BUILD_DIR:-${TMPDIR:-/tmp}claude-thing-connector}"
+# failure that has nothing to do with the code.
+BUILD_DIR="${CLAUDE_THING_BUILD_DIR:-${TMPDIR:-/tmp/}claude-thing-connector}"
 DIST_DIR="${REPO_ROOT}/dist"
-RELAY_SRC="${REPO_ROOT}/patches/swift/ClaudeRelayService.swift"
+ARCHIVE_PATH="${BUILD_DIR}/${APP_NAME}.xcarchive"
+EXPORT_PATH="${BUILD_DIR}/export"
+APP_PATH="${EXPORT_PATH}/${APP_NAME}.app"
+DERIVED_DATA="${BUILD_DIR}/DerivedData"
+DMG_VENV="${BUILD_DIR}/dmgvenv"
 
+color() { printf "\033[0;36m%s\033[0m\n" "$1"; }
 fail() { echo "ERROR: $*" >&2; exit 1; }
 
-command -v xcodebuild >/dev/null || fail "Xcode is required"
-command -v python3 >/dev/null || fail "python3 is required"
-[ -f "$RELAY_SRC" ] || fail "missing ${RELAY_SRC}"
+require_tool() { command -v "$1" >/dev/null 2>&1 || fail "$1 is required"; }
 
-if [ "$KEEP" -eq 0 ] || [ ! -d "$BUILD_DIR" ]; then
-  rm -rf "$BUILD_DIR"
-  mkdir -p "$(dirname "$BUILD_DIR")"
-  if [ -n "$CONNECTOR_SRC" ]; then
-    [ -d "$CONNECTOR_SRC" ] || fail "no connector checkout at ${CONNECTOR_SRC}"
-    echo ">> copying ${CONNECTOR_SRC}"
-    # -X drops extended attributes. Copying them in makes codesign fail the
-    # build with "resource fork, Finder information, or similar detritus not
-    # allowed", because they ride along into the built .app.
-    cp -RX "$CONNECTOR_SRC" "$BUILD_DIR"
-    rm -rf "${BUILD_DIR}/.git" "${BUILD_DIR}/build" "${BUILD_DIR}/output" "${BUILD_DIR}/cache"
-  else
-    echo ">> cloning usenocturne/nocturne-connector at ${CONNECTOR_REF}"
-    # Fetched by commit, not by branch. Upstream force-pushed main from
-    # 41f4d04 to its protocol-v2 line on 2026-08-04 and the macOS app is not
-    # on that line at all, so cloning the default branch gets a tree with no
-    # macos/Nocturne in it. This is the last commit that carries the app —
-    # the one every release so far was built from. Override with
-    # CONNECTOR_REF=<sha|branch> once upstream has a macOS app again.
-    git init --quiet "$BUILD_DIR"
-    git -C "$BUILD_DIR" remote add origin https://github.com/usenocturne/nocturne-connector.git
-    git -C "$BUILD_DIR" fetch --quiet --depth 1 origin "$CONNECTOR_REF"
-    git -C "$BUILD_DIR" checkout --quiet --detach FETCH_HEAD
+has_developer_id() {
+  security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID Application"
+}
+
+check_notary_profile() {
+  xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1
+}
+
+prepare_dmgbuild() {
+  if [ ! -x "${DMG_VENV}/bin/dmgbuild" ]; then
+    color "   (setting up dmgbuild venv)"
+    python3 -m venv "$DMG_VENV"
+    "${DMG_VENV}/bin/pip" install --quiet --upgrade pip dmgbuild
   fi
-  # Belt and braces: a clone can still pick up quarantine/provenance attributes
-  # depending on how the machine is configured.
-  xattr -cr "$BUILD_DIR" 2>/dev/null || true
+}
+
+build_developer_id_app() {
+  color ">> Archiving '${SCHEME}' (Release, Developer ID)"
+  xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
+    -configuration Release \
+    -destination 'generic/platform=macOS' \
+    -archivePath "$ARCHIVE_PATH" \
+    -derivedDataPath "$DERIVED_DATA" \
+    -skipPackagePluginValidation \
+    -skipMacroValidation \
+    DEVELOPMENT_TEAM="$TEAM_ID" \
+    CODE_SIGN_STYLE=Manual \
+    CODE_SIGN_IDENTITY="Developer ID Application" \
+    CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
+    ENABLE_HARDENED_RUNTIME=YES \
+    archive
+
+  color ">> Exporting Developer ID app"
+  xcodebuild -exportArchive \
+    -archivePath "$ARCHIVE_PATH" \
+    -exportPath "$EXPORT_PATH" \
+    -exportOptionsPlist "$EXPORT_OPTIONS"
+}
+
+build_local_app() {
+  color ">> Building '${SCHEME}' (Release, local ad-hoc signing)"
+  xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
+    -configuration Release \
+    -destination 'platform=macOS' \
+    -derivedDataPath "$DERIVED_DATA" \
+    -skipPackagePluginValidation \
+    -skipMacroValidation \
+    CODE_SIGN_STYLE=Manual \
+    CODE_SIGN_IDENTITY="-" \
+    CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
+    DEVELOPMENT_TEAM="" \
+    ENABLE_HARDENED_RUNTIME=YES \
+    build
+
+  local built_app="${DERIVED_DATA}/Build/Products/Release/${APP_NAME}.app"
+  [ -d "$built_app" ] || fail "build produced no ${APP_NAME}.app at ${built_app}"
+  mkdir -p "$EXPORT_PATH"
+  ditto "$built_app" "$APP_PATH"
+}
+
+# The connector names its own build Nocturne-<ver>.dmg, which on a release page
+# is indistinguishable from stock Nocturne. This one carries the Claude relay,
+# so it says so: Nocturne-claude-<app version>.dmg.
+build_dmg() {
+  [ -d "$APP_PATH" ] || fail "no ${APP_NAME}.app found at ${APP_PATH}"
+
+  local version
+  version="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
+    "${APP_PATH}/Contents/Info.plist")"
+  local suffix=""
+  [ "$LOCAL_BUILD" -eq 1 ] && suffix="-local"
+  DMG_PATH="${DIST_DIR}/${APP_NAME}-claude-${version}${suffix}.dmg"
+  rm -f "$DMG_PATH"
+
+  color ">> Building DMG: $(basename "$DMG_PATH")"
+  prepare_dmgbuild
+
+  local bg_define=()
+  if [ -f "$DMG_BACKGROUND" ]; then
+    local bg_width
+    bg_width="$(sips -g pixelWidth "$DMG_BACKGROUND" 2>/dev/null | awk '/pixelWidth/{print $2}')"
+    if [ "${bg_width:-0}" -ge 1000 ]; then
+      sips -z 400 660 "$DMG_BACKGROUND" --out "${BUILD_DIR}/dmg-bg-1x.png" >/dev/null 2>&1
+      tiffutil -cathidpicheck "${BUILD_DIR}/dmg-bg-1x.png" "$DMG_BACKGROUND" \
+        -out "${BUILD_DIR}/dmg-bg.tiff" >/dev/null 2>&1
+      bg_define=(-D "bg=${BUILD_DIR}/dmg-bg.tiff")
+    else
+      bg_define=(-D "bg=${DMG_BACKGROUND}")
+    fi
+  else
+    echo "  (no background.png in mac/Nocturne/dmg-assets/; building a plain window)" >&2
+  fi
+
+  "${DMG_VENV}/bin/dmgbuild" -s "$DMG_SETTINGS" \
+    -D "app=${APP_PATH}" "${bg_define[@]}" \
+    "$APP_NAME" "$DMG_PATH"
+}
+
+require_tool python3
+require_tool xcodebuild
+require_tool xcrun
+require_tool security
+[ -d "$PROJECT" ] || fail "no Xcode project at ${PROJECT} — is mac/Nocturne/ checked out?"
+[ -f "$DMG_SETTINGS" ] || fail "missing DMG settings at ${DMG_SETTINGS}"
+[ -f "${APP_SRC}/Nocturne/Services/ClaudeRelayService.swift" ] \
+  || fail "the vendored tree has no ClaudeRelayService.swift — this would build stock Nocturne"
+
+if [ "$LOCAL_BUILD" -eq 0 ]; then
+  has_developer_id \
+    || fail "no 'Developer ID Application' certificate found. Install one, or use --local for a non-notarizable test DMG."
+  if [ "$SKIP_NOTARIZE" -eq 0 ] && ! check_notary_profile; then
+    fail "no notarytool keychain profile '${NOTARY_PROFILE}'. Run: xcrun notarytool store-credentials ${NOTARY_PROFILE}"
+  fi
 fi
 
-APP="${BUILD_DIR}/macos/Nocturne"
-[ -d "$APP" ] || fail "${BUILD_DIR} doesn't look like nocturne-connector (no macos/Nocturne)"
+# The source now lives in the repo, so iCloud may have stamped xattrs onto it
+# since the last build; they ride resource copies into the .app and fail
+# codesign. Clearing them touches nothing git tracks.
+xattr -cr "$APP_SRC" 2>/dev/null || true
 
-echo ">> adding ClaudeRelayService.swift"
-cp "$RELAY_SRC" "${APP}/Services/ClaudeRelayService.swift"
+mkdir -p "$BUILD_DIR" "$DIST_DIR"
+rm -rf "$ARCHIVE_PATH" "$EXPORT_PATH" "$DERIVED_DATA"
 
-# Each edit is anchored on a distinctive line of upstream source. A missing
-# anchor means the connector moved out from under us — stop rather than ship a
-# half-patched app. Re-running is a no-op: every edit checks for its own result.
-echo ">> patching call sites"
-APP="$APP" python3 <<'PY'
-import os, sys, pathlib
+if [ "$LOCAL_BUILD" -eq 1 ]; then
+  build_local_app
+else
+  build_developer_id_app
+fi
 
-app = pathlib.Path(os.environ["APP"])
-edits = 0
+build_dmg
 
-def patch(relpath, anchor, replacement, marker):
-    global edits
-    path = app / relpath
-    text = path.read_text()
-    if marker in text:
-        print(f"   = {relpath} (already patched)")
-        return
-    if anchor not in text:
-        sys.exit(f"ERROR: anchor not found in {relpath}:\n{anchor}")
-    path.write_text(text.replace(anchor, replacement, 1))
-    edits += 1
-    print(f"   + {relpath}")
+if [ "$SKIP_NOTARIZE" -eq 1 ]; then
+  color ">> Skipping notarization"
+  if [ "$LOCAL_BUILD" -eq 1 ]; then
+    echo "Local DMG ready (NOT Developer ID signed, NOT notarized): $DMG_PATH"
+  else
+    echo "Developer ID DMG ready (NOT notarized): $DMG_PATH"
+  fi
+  exit 0
+fi
 
-# 1. SessionStore — persisted toggle
-patch(
-    "Services/SessionStore.swift",
-    '    private let systemMediaEnabledKey = "nocturne.systemMediaEnabled"',
-    '    private let systemMediaEnabledKey = "nocturne.systemMediaEnabled"\n'
-    '    private let claudeRelayEnabledKey = "nocturne.claudeRelayEnabled"',
-    "claudeRelayEnabledKey",
-)
-patch(
-    "Services/SessionStore.swift",
-    "    private func readKeychain(account: String) -> Data? {",
-    "    // Defaults to on: this build exists to relay Claude Code, so a fresh\n"
-    "    // install should relay without a trip to Settings. object(forKey:) is\n"
-    "    // what separates \"never set\" from \"set to false\"; bool(forKey:) can't.\n"
-    "    var claudeRelayEnabled: Bool {\n"
-    "        get { UserDefaults.standard.object(forKey: claudeRelayEnabledKey) as? Bool ?? true }\n"
-    "        set { UserDefaults.standard.set(newValue, forKey: claudeRelayEnabledKey) }\n"
-    "    }\n\n"
-    "    private func readKeychain(account: String) -> Data? {",
-    "var claudeRelayEnabled",
-)
+color ">> Notarizing (profile: ${NOTARY_PROFILE})"
+xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
 
-# 2. RPCManager — hold the relay, forward events, route claude.* calls
-patch(
-    "Services/RPCManager.swift",
-    "    private let ota = OTAService()",
-    "    private let ota = OTAService()\n"
-    "    let claudeRelay: ClaudeRelayService",
-    "let claudeRelay: ClaudeRelayService",
-)
-patch(
-    "Services/RPCManager.swift",
-    "        currentUserID: @escaping () -> String? = { nil }\n"
-    "    ) {",
-    "        currentUserID: @escaping () -> String? = { nil },\n"
-    "        claudeRelay: ClaudeRelayService\n"
-    "    ) {",
-    "claudeRelay: ClaudeRelayService\n    ) {",
-)
-patch(
-    "Services/RPCManager.swift",
-    "        self.currentUserID = currentUserID\n",
-    "        self.currentUserID = currentUserID\n"
-    "        self.claudeRelay = claudeRelay\n\n"
-    "        // Daemon events arrive on the relay's socket and go straight out to\n"
-    "        // every paired Car Thing, same path the spotify.* broadcasts take.\n"
-    "        claudeRelay.onEvent = { [weak self] topic, data in\n"
-    "            Task { @MainActor [weak self] in\n"
-    "                await self?.broadcastToDevices(topic: topic, data: ClaudeRelayService.packJSON(data))\n"
-    "            }\n"
-    "        }\n",
-    # The packer is the marker: a --keep copy patched by an older script still
-    # says RPCValueBridge.pack here, misses this marker, and then hard-fails on
-    # the consumed anchor — instead of silently shipping the coercing packer.
-    "ClaudeRelayService.packJSON(data)",
-)
-patch(
-    "Services/RPCManager.swift",
-    '            if method.hasPrefix("spotify.") {\n'
-    "                let result = try await spotify.dispatch(method, params: RPCValueBridge.dictionary(params))\n"
-    "                return RPCValueBridge.pack(result)\n"
-    "            }\n",
-    '            if method.hasPrefix("spotify.") {\n'
-    "                let result = try await spotify.dispatch(method, params: RPCValueBridge.dictionary(params))\n"
-    "                return RPCValueBridge.pack(result)\n"
-    "            }\n"
-    '            if method.hasPrefix("claude.") {\n'
-    "                let result = try await claudeRelay.call(method, params: RPCValueBridge.dictionary(params))\n"
-    "                return ClaudeRelayService.packJSON(result)\n"
-    "            }\n",
-    'ClaudeRelayService.packJSON(result)',
-)
+color ">> Stapling ticket"
+xcrun stapler staple "$DMG_PATH"
+xcrun stapler validate "$DMG_PATH"
 
-# 3. NocturneApp — construct, describe the link, start
-patch(
-    "NocturneApp.swift",
-    "        let rpcManager = RPCManager(\n"
-    "            spotify: spotify,\n"
-    "            nowPlaying: nowPlaying,\n"
-    "            analytics: analytics,\n"
-    "            currentUserID: { auth.status.user?.id }\n"
-    "        )",
-    "        let claudeRelay = ClaudeRelayService()\n"
-    "        let rpcManager = RPCManager(\n"
-    "            spotify: spotify,\n"
-    "            nowPlaying: nowPlaying,\n"
-    "            analytics: analytics,\n"
-    "            currentUserID: { auth.status.user?.id },\n"
-    "            claudeRelay: claudeRelay\n"
-    "        )",
-    "let claudeRelay = ClaudeRelayService()",
-)
-patch(
-    "NocturneApp.swift",
-    "        rpcManager.onStaleConnection = { [weak bluetooth] address in\n"
-    "            bluetooth?.teardownStaleLink(address: address)\n"
-    "        }\n",
-    "        rpcManager.onStaleConnection = { [weak bluetooth] address in\n"
-    "            bluetooth?.teardownStaleLink(address: address)\n"
-    "        }\n\n"
-    "        // The daemon's control page renders this; weak on both sides because\n"
-    "        // rpcManager owns the relay that owns this closure.\n"
-    "        claudeRelay.statusProvider = { [weak bluetooth, weak rpcManager] in\n"
-    "            guard let conn = bluetooth?.carThingConnections.first else {\n"
-    '                return ["connected": false]\n'
-    "            }\n"
-    "            let info = rpcManager?.deviceInfo(for: conn.address)\n"
-    "            return [\n"
-    '                "connected": true,\n'
-    '                "device": conn.name ?? "Car Thing",\n'
-    '                "address": conn.address,\n'
-    '                "serial": info?.serialNumber ?? "",\n'
-    '                "firmware": info?.version ?? ""\n'
-    "            ]\n"
-    "        }\n"
-    "        claudeRelay.start()\n",
-    "claudeRelay.statusProvider",
-)
-
-# 4. SettingsView — the toggle
-patch(
-    "Views/Pages/SettingsView.swift",
-    "    @EnvironmentObject var loginItem: LoginItemService\n",
-    "    @EnvironmentObject var loginItem: LoginItemService\n"
-    "    @EnvironmentObject var rpc: RPCManager\n",
-    "@EnvironmentObject var rpc: RPCManager",
-)
-patch(
-    "Views/Pages/SettingsView.swift",
-    "    @State private var deleteError: String? = nil\n",
-    "    @State private var deleteError: String? = nil\n"
-    "    @State private var claudeRelayOn = SessionStore.shared.claudeRelayEnabled\n",
-    "claudeRelayOn = SessionStore.shared",
-)
-patch(
-    "Views/Pages/SettingsView.swift",
-    '                section("Privacy") {',
-    '                section("Claude Mode") {\n'
-    "                    Card {\n"
-    "                        HStack(alignment: .center) {\n"
-    "                            VStack(alignment: .leading, spacing: 2) {\n"
-    '                                Text("Claude Code relay")\n'
-    "                                    .font(Theme.font(16, .medium))\n"
-    "                                    .foregroundStyle(Theme.fg)\n"
-    "                                Text(rpc.claudeRelay.connected\n"
-    '                                     ? "Relaying — the claude-thing daemon on this Mac is connected."\n'
-    '                                     : "Relay Claude Code sessions to the Car Thing. Needs the claude-thing daemon running on 127.0.0.1:8790.")\n'
-    "                                    .font(Theme.font(14))\n"
-    "                                    .foregroundStyle(Theme.secondary)\n"
-    "                                    .fixedSize(horizontal: false, vertical: true)\n"
-    "                            }\n"
-    "                            Spacer()\n"
-    '                            Toggle("", isOn: Binding(\n'
-    "                                get: { claudeRelayOn },\n"
-    "                                set: { on in\n"
-    "                                    claudeRelayOn = on\n"
-    "                                    SessionStore.shared.claudeRelayEnabled = on\n"
-    "                                    if on { rpc.claudeRelay.start() } else { rpc.claudeRelay.stop() }\n"
-    "                                }\n"
-    "                            ))\n"
-    "                            .toggleStyle(WebSwitchStyle())\n"
-    "                            .labelsHidden()\n"
-    "                        }\n"
-    "                    }\n"
-    "                }\n\n"
-    '                section("Privacy") {',
-    'section("Claude Mode")',
-)
-
-print(f">> {edits} edit(s) applied")
-PY
-
-echo ">> building DMG (${DMG_ARGS[*]})"
-(cd "$BUILD_DIR" && scripts/build-macos-dmg.sh "${DMG_ARGS[@]}")
-
-mkdir -p "$DIST_DIR"
-DMG="$(ls -t "${BUILD_DIR}/output"/*.dmg 2>/dev/null | head -1)"
-[ -n "$DMG" ] || fail "the connector's DMG script produced nothing in ${BUILD_DIR}/output"
-
-# The connector names its own build Nocturne-<ver>-local.dmg, which on a release
-# page is indistinguishable from stock Nocturne. This one carries the Claude
-# relay, so it says so: Nocturne-claude-<connector version>.dmg.
-BASE="$(basename "$DMG")"
-CONNECTOR_VER="${BASE#Nocturne-}"
-CONNECTOR_VER="${CONNECTOR_VER%.dmg}"
-CONNECTOR_VER="${CONNECTOR_VER%-local}"
-case "$BASE" in
-  Nocturne-*.dmg) OUT="Nocturne-claude-${CONNECTOR_VER}.dmg" ;;
-  *) OUT="$BASE" ;;
-esac
-cp "$DMG" "${DIST_DIR}/${OUT}"
-
-echo
-echo "DMG: ${DIST_DIR}/${OUT}  (connector ${CONNECTOR_VER})"
+color ">> Finished"
+echo "Notarized DMG: $DMG_PATH"

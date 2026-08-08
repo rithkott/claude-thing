@@ -1,5 +1,17 @@
 # nocturned + iap2-rs (device-side services)
 
+> **Nocturne 4.0-era.** 2.0.0 targets **4.1**, which moved to a Yocto monorepo
+> (`usenocturne/nocturne`: `crates/daemon`, `packages/ui`, `image/`), switched
+> userspace from armv7 to **aarch64**, replaced the flat `system_[ab].ext2`
+> slots with a GPT `superbird.wic` plus a `bandaid.ext4` overlay, and moved the
+> webapp root from `/etc/nocturne/ui` to `/usr/lib/nocturne/webapps/ui`.
+> `nocturned` and `nocturne-ui` are archived. The device *behaviour* recorded
+> below — the :5000 envelope, the MsgPack/SPP wire format, input handling, the
+> hardware itself — is unchanged and still correct.
+>
+> **For 4.1 specifics, read `docs/rebase-4.1/NOTES.md` instead of re-deriving
+> them.** It is the researched record, with the command that proves each claim.
+
 > Doc drift: `nocturned/AGENTS.md` slightly stale — omits `webapp_server.rs` + `app/hid_mapping.rs`, says 20ms audio frames (code uses 60ms, `audio.rs:15-21,64`). Trust code.
 
 ## 1. WebSocket API on :5000
@@ -62,13 +74,13 @@ Reassembly: per-session `BytesMut`, cap 256KB (overflow drops whole buffer). CRC
 
 macOS connector: daemon probes Mac on ch 3 (`MACOS_CONNECTOR_PROBE_CHANNEL`, `bluetooth.rs:1417`), holds 750ms, Mac dials back to ch 2. **The Mac hardcodes ch 2 and never runs an SDP query** — a missing Serial Port entry in macOS's service list is the device having dropped the profile, never a stale Mac SDP cache, so re-pairing is not the fix.
 
-Both profiles are BlueZ `RegisterProfile` registrations scoped to the handle nocturned holds; if bluetoothd restarts, the handle dies and the SDP record plus the RFCOMM listener go with it while ACL/AVRCP survive — macOS keeps saying "Connected" over a port nobody is listening on. `patches/nocturned-spp-reregister.patch` puts each registration under a supervisor loop that re-registers with 1s→30s backoff, re-asserts adapter discoverable/pairable/alias + the pairing agent, and broadcasts `bluetooth.profile` registered/unregistered.
+Both profiles are BlueZ `RegisterProfile` registrations scoped to the handle nocturned holds; if bluetoothd restarts, the handle dies and the SDP record plus the RFCOMM listener go with it while ACL/AVRCP survive — macOS keeps saying "Connected" over a port nobody is listening on. The 1.23.5 hotfix put each registration under a supervisor loop that re-registered with 1s-to-30s backoff, re-asserted adapter discoverable/pairable/alias + the pairing agent, and broadcast `bluetooth.profile` registered/unregistered. That patch was dropped in 2.0.0 along with the aarch64 cross-build it required — 4.1 still has no supervisor (`crates/daemon/src/bluetooth/mod.rs:1549`), so if the failure reappears it ships as its own release (NOTES §6).
 
 **Handshake:** daemon sends `daemon.ready` event on session open, re-sends every 3s until phone replies `app.ready`; then `daemon.heartbeat` every 10s. Phone→daemon calls the daemon answers itself: `ping`, `device.info`, `device.volume.update`, `media.control.*` (`app/msgpack.rs:279-302,643-707`).
 
 ## 3. Static web server
 
-`webapp_server.rs` (33 lines): axum 0.8 + `tower_http::ServeDir` with SPA index fallback. Dir from `NOCTURNE_WEBAPPS_DIR` (default `/opt/nocturne/webapps/ui`; prod sets `/etc/nocturne/ui`). Listen `127.0.0.1:8080` hardcoded. **Missing dir = silent no-server** — Chromium waits forever.
+`webapp_server.rs` (33 lines): axum 0.8 + `tower_http::ServeDir` with SPA index fallback. Dir from `NOCTURNE_WEBAPPS_DIR` (default `/opt/nocturne/webapps/ui`; 4.0 prod set `/etc/nocturne/ui`, 4.1 ships the floor at `/usr/lib/nocturne/webapps/ui` and bind-mounts bandaid over `/opt/nocturne`). Listen `127.0.0.1:8080` hardcoded. **Missing dir = silent no-server** — Chromium waits forever.
 
 ## 4. Hardware access
 

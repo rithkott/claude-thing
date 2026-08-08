@@ -23,9 +23,16 @@ export const LOG_DIR = path.join(EMULATOR_ROOT, 'logs');
 export const SHELL_DIR = path.join(EMULATOR_ROOT, 'shell');
 export const PID_FILE = path.join(CACHE_DIR, 'emulator.pid');
 
-export const UI_PATH_IN_ROOTFS = '/etc/nocturne/ui';
-export const VERSION_PATH_IN_ROOTFS = '/etc/nocturne/version.json';
+// 4.1 moved the webapp root out of /etc and into the Yocto floor under
+// /usr/lib, and dropped /etc/nocturne/version.json entirely — the only version
+// string left in the image is the one in the zip's filename.
+export const UI_PATH_IN_ROOTFS = '/usr/lib/nocturne/webapps/ui';
 export const FONTS_PATH_IN_ROOTFS = '/usr/share/fonts';
+
+// The flashthing zip members and the GPT partitions we carve out of the wic.
+export const WIC_MEMBER = 'superbird.wic';
+export const META_MEMBER = 'meta.json';
+export const ROOT_PARTITIONS = { a: 'root_a', b: 'root_b' };
 
 export const DEBUGFS_CANDIDATES = [
   '/opt/homebrew/opt/e2fsprogs/sbin/debugfs',

@@ -1,5 +1,17 @@
 # nocturne-ui + connector (app-side patterns)
 
+> **Nocturne 4.0-era.** 2.0.0 targets **4.1**, which moved to a Yocto monorepo
+> (`usenocturne/nocturne`: `crates/daemon`, `packages/ui`, `image/`), switched
+> userspace from armv7 to **aarch64**, replaced the flat `system_[ab].ext2`
+> slots with a GPT `superbird.wic` plus a `bandaid.ext4` overlay, and moved the
+> webapp root from `/etc/nocturne/ui` to `/usr/lib/nocturne/webapps/ui`.
+> `nocturned` and `nocturne-ui` are archived. The device *behaviour* recorded
+> below — the :5000 envelope, the MsgPack/SPP wire format, input handling, the
+> hardware itself — is unchanged and still correct.
+>
+> **For 4.1 specifics, read `docs/rebase-4.1/NOTES.md` instead of re-deriving
+> them.** It is the researched record, with the command that proves each claim.
+
 ## 0. Mental model
 
 Chromium 69-era kiosk at `http://localhost:8080` (static SPA served by nocturned from `NOCTURNE_WEBAPPS_DIR`). Same daemon runs WS RPC on `:5000` — **not same-origin** despite what `nocturne-ui/AGENTS.md:10` claims (port hardcoded at `useNocturned.js:5`). All internet proxied: browser → WS :5000 → daemon → BT → phone/connector.

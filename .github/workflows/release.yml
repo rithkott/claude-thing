@@ -28,11 +28,12 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Stock Nocturne image the Claude app is injected into.
-  NOCTURNE_IMAGE_TAG: v4.0.7
-  # Bump to force a rebuild of the cached nocturned binary / DMG even when no
-  # tracked file changed (i.e. to pick up upstream nocturned or connector).
-  NOCTURNED_EPOCH: '1'
+  # Stock Nocturne image the Claude app is injected into. 2.0.0 ships the
+  # daemon unmodified — 4.1 forwards unknown methods to the companion on its
+  # own, so there is nothing left to cross-compile.
+  NOCTURNE_IMAGE_TAG: v4.1.0
+  # Bump to force a rebuild of the cached DMG even when no tracked file changed
+  # (i.e. to pick up an upstream connector change).
   DMG_EPOCH: '1'
 
 jobs:
@@ -109,19 +110,6 @@ jobs:
           npm --prefix device-app ci
           npm --prefix device-app run build
 
-      # nocturned only changes when its build inputs or NOCTURNED_EPOCH do; the
-      # cross-compile is the slowest thing in this workflow, so it is cached.
-      - name: restore nocturned
-        id: nocturned-cache
-        uses: actions/cache@v4
-        with:
-          path: dist/nocturned
-          key: nocturned-${{ env.NOCTURNED_EPOCH }}-${{ hashFiles('scripts/build-nocturned.sh', 'scripts/nocturned.Dockerfile', 'patches/nocturned-*.patch') }}
-
-      - name: cross-compile nocturned
-        if: steps.nocturned-cache.outputs.cache-hit != 'true'
-        run: scripts/build-nocturned.sh
-
       - name: restore the stock Nocturne image
         id: image-cache
         uses: actions/cache@v4
@@ -138,7 +126,8 @@ jobs:
           gh release download "$NOCTURNE_IMAGE_TAG" --repo usenocturne/nocturne \
             --pattern 'nocturne_image_*.zip' --dir firmware --clobber
 
-      - name: install ext2 tooling
+      # debugfs drives the carved ext4 rootfs images inside superbird.wic.
+      - name: install ext4 tooling
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends e2fsprogs zip unzip
 
       - name: inject the Claude app
@@ -150,7 +139,6 @@ jobs:
           [ -f "$base" ] || { echo "ERROR: no base image at $base" >&2; exit 1; }
           node scripts/inject-firmware.js \
             --zip "$base" \
-            --nocturned dist/nocturned \
             --out "dist/nocturne_${NOCTURNE_IMAGE_TAG}_claude_${TAG}.zip"
 
       - uses: actions/upload-artifact@v4
@@ -168,14 +156,15 @@ jobs:
         with:
           ref: ${{ needs.meta.outputs.sha }}
 
-      # The DMG is the connector plus our relay patch; it only changes when the
-      # patch sources or DMG_EPOCH do, so an unchanged one is reused verbatim.
+      # The connector is vendored at mac/Nocturne/, so the DMG changes only
+      # when that tree, the build script or DMG_EPOCH does — an unchanged one is
+      # reused verbatim.
       - name: restore the DMG
         id: dmg-cache
         uses: actions/cache@v4
         with:
           path: dist/*.dmg
-          key: dmg-${{ env.DMG_EPOCH }}-${{ hashFiles('patches/**', 'mac/**', 'scripts/build-connector-dmg.sh') }}
+          key: dmg-${{ env.DMG_EPOCH }}-${{ hashFiles('mac/**', 'scripts/build-connector-dmg.sh') }}
 
       - name: build the connector DMG
         if: steps.dmg-cache.outputs.cache-hit != 'true'

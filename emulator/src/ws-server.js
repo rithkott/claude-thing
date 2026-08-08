@@ -75,8 +75,15 @@ export function startWsServer(firmware) {
       // claude.* rides the relay path (daemon), like BT→connector on hardware
       if (claudeBridge.handle(msg, (frame) => logWs('<<', broadcast(frame)))) return;
 
-      const handler = methods[msg.method] || phoneSim.methods[msg.method];
+      // 4.1's daemon owns no method allow-list. Everything it does not answer
+      // itself is forwarded verbatim to the app registered by the most recent
+      // app.ready (websocket.rs handle_incoming_message, ~:1597-1665), and with
+      // no app registered it answers "No active app session" — it never says
+      // "Unknown method". That string is the *companion's* own fallthrough, so
+      // it now only appears for methods the phone sim declines.
       let frame;
+      const handler = methods[msg.method]
+        || (phoneSim.isRegistered() ? phoneSim.methods[msg.method] : undefined);
       if (handler) {
         try {
           const out = await handler(msg.params);
@@ -86,8 +93,9 @@ export function startWsServer(firmware) {
         } catch (err) {
           frame = { type: 'error', id: msg.id, error: String(err.message || err) };
         }
+      } else if (!phoneSim.isRegistered()) {
+        frame = { type: 'error', id: msg.id, error: 'No active app session' };
       } else {
-        // Verbatim connector fallthrough behavior for unknown (incl. spotify.*)
         frame = { type: 'error', id: msg.id, error: 'Unknown method' };
       }
       logWs('<<', broadcast(frame));

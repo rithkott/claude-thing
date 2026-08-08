@@ -64,6 +64,14 @@ function resolveIn(rootDir, urlPath) {
 // fallback) are stripped and the nomodule scripts promoted to always-run:
 // vite-legacy-polyfill loads SystemJS synchronously, then the inline
 // vite-legacy-entry System.import() fires, same as on the device.
+//
+// 4.1's UI dropped vite-plugin-legacy — it ships a single module entry and no
+// nomodule twin. Stripping modules there would leave an empty page, so the
+// rewrite only fires on a bundle that actually carries a legacy half.
+function hasLegacyChunks(html) {
+  return /<script[^>]*\bnomodule\b/.test(html);
+}
+
 function stripModernChunks(html) {
   return html
     .replace(/<script type="module"[^>]*>[\s\S]*?<\/script>\s*/g, '')
@@ -130,11 +138,19 @@ export function startHttpServer(firmware) {
   } else if (fontsRoot) {
     logInfo(`device fonts: serving ${fontCss.split('\n').length} faces from rootfs`);
   }
-  logInfo(`legacy chunks: ${FORCE_LEGACY ? 'forced (device chrome69 code path)' : 'OFF — modern modules'}`);
+  let legacyAvailable = false;
+  try {
+    legacyAvailable = hasLegacyChunks(fs.readFileSync(path.join(uiRoot, 'index.html'), 'utf8'));
+  } catch {}
+  const forceLegacy = FORCE_LEGACY && legacyAvailable;
+  logInfo(`legacy chunks: ${
+    forceLegacy ? 'forced (device chrome69 code path)'
+      : !legacyAvailable ? 'n/a — this UI ships module-only (4.1+)'
+      : 'OFF — modern modules'}`);
 
   // Applied only to HTML served out of the firmware UI tree — never the shell.
   const transformUiHtml = (html) => {
-    if (FORCE_LEGACY) html = stripModernChunks(html);
+    if (forceLegacy && hasLegacyChunks(html)) html = stripModernChunks(html);
     if (fontCss) {
       html = html.replace('</head>',
         '<link rel="stylesheet" href="/__emulator__/device-fonts.css"></head>');
@@ -158,7 +174,7 @@ export function startHttpServer(firmware) {
       cpuThrottle: CPU_THROTTLE_RATE,
       jsHeapMb: JS_HEAP_MB,
       inputPollMs: INPUT_POLL_MS,
-      forceLegacy: FORCE_LEGACY,
+      forceLegacy,
       deviceFonts: Boolean(fontsRoot),
     },
   });

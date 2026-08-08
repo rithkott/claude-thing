@@ -1,5 +1,17 @@
 # Building new software for the Car Thing — synthesis
 
+> **Nocturne 4.0-era.** 2.0.0 targets **4.1**, which moved to a Yocto monorepo
+> (`usenocturne/nocturne`: `crates/daemon`, `packages/ui`, `image/`), switched
+> userspace from armv7 to **aarch64**, replaced the flat `system_[ab].ext2`
+> slots with a GPT `superbird.wic` plus a `bandaid.ext4` overlay, and moved the
+> webapp root from `/etc/nocturne/ui` to `/usr/lib/nocturne/webapps/ui`.
+> `nocturned` and `nocturne-ui` are archived. The device *behaviour* recorded
+> below — the :5000 envelope, the MsgPack/SPP wire format, input handling, the
+> hardware itself — is unchanged and still correct.
+>
+> **For 4.1 specifics, read `docs/rebase-4.1/NOTES.md` instead of re-deriving
+> them.** It is the researched record, with the command that proves each claim.
+
 Everything here derives from [hardware.md](hardware.md), [firmware.md](firmware.md), [daemon.md](daemon.md), [ui.md](ui.md).
 
 ## The device in one paragraph
