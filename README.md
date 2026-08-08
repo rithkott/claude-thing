@@ -4,12 +4,13 @@ Turn a Spotify Car Thing into a desk monitor for Claude Code: every session at a
 glance, a queue of everything waiting on you, live usage bars, and permission
 approve/deny from the dial.
 
-> **A fork of [Nocturne](https://github.com/usenocturne/nocturne) 4.0**, the
+> **A fork of [Nocturne](https://github.com/usenocturne/nocturne) 4.1**, the
 > custom Car Thing firmware by [usenocturne](https://github.com/usenocturne).
 > Nothing Nocturne does is removed — this adds a second mode alongside it, and
 > the two swap at runtime, so the device stays a music player when you want one.
 >
-> ***Updating to work off Nocturne 4.1 Soon***
+> Nocturne's daemon ships unmodified: 4.1 forwards the methods Claude mode needs
+> on its own, so nothing here replaces a firmware binary.
 
 **No Car Thing? You can still run this.** Skip to
 [Try it without the hardware](#try-it-without-the-hardware).
@@ -105,8 +106,8 @@ This replaces the software on the device. It's reversible — Nocturne's own
 firmware can be flashed back the same way — but it does wipe what's on there now.
 
 1. From the same [release page](https://github.com/rithkott/claude-thing/releases/latest),
-   download the firmware: **`nocturne_v4.0.7_claude_1.17.2.zip`** (again, the
-   number may be higher). It's large — around 365 MB.
+   download the firmware: **`nocturne_v4.1.0_claude_2.0.0.zip`** (again, the
+   number may be higher). It's large — around 425 MB.
 2. **Do not unzip it.** The flashing tool wants the zip as-is.
 3. Open [terbium.app](https://terbium.app) **in Chrome**.
 4. Put the Car Thing into burn mode: hold **preset button 1 and preset button 4**
@@ -383,9 +384,9 @@ Car Thing kiosk ⇄ nocturned :5000 ⇄ [emulator bridge │ Bluetooth → Noctu
 | `device-app/` | The Claude mode kiosk app (Vite + vanilla JS, Chrome 69 target). |
 | `webpage/` | The Mac control page (React + Tailwind). |
 | `emulator/` | Firmware extraction, static server, mock nocturned, faceplate, `claude.*` bridge. |
-| `mac/` | `install.sh`, `uninstall.sh`, LaunchAgent template. |
-| `patches/` | The nocturned arm, the Swift relay, an optional nocturne-ui menu entry. |
-| `scripts/` | Firmware injection, the two builders, `test-all.sh`. |
+| `mac/` | `install.sh`, `uninstall.sh`, LaunchAgent template, and `Nocturne/` — the vendored macOS connector with the `claude.*` relay. |
+| `patches/` | An optional nocturne-ui menu entry. Everything else is tracked source now. |
+| `scripts/` | Firmware injection, the DMG builder, `test-all.sh`. |
 | `protocol/claude-protocol.md` | The `claude.*` contract — the single source of truth. |
 | `carthing-knowledge/` | Research notes on the device platform. |
 | `design-handoff/` | The original screen designs. |

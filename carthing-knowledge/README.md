@@ -4,6 +4,12 @@ Knowledge base for building new software on the Spotify Car Thing ("superbird") 
 
 Not a code repo — reference docs only.
 
+> Written against Nocturne **4.0.x**. 2.0.0 targets 4.1, which reorganised the
+> sources into a Yocto monorepo and changed the image layout and CPU
+> architecture; `firmware.md`, `daemon.md`, `ui.md` and
+> `building-new-software.md` each carry a note on what moved.
+> `docs/rebase-4.1/NOTES.md` is the current record for 4.1.
+
 ## Contents
 
 - [hardware.md](hardware.md) — SoC, display, inputs, radios, boot/unlock, partition layout, quirks

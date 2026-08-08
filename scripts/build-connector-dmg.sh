@@ -8,9 +8,13 @@ set -euo pipefail
 # build time any more; the relay and its call sites are ordinary tracked source.
 #
 # Usage:
-#   scripts/build-connector-dmg.sh                  # Developer ID DMG + notarization
+#   scripts/build-connector-dmg.sh                  # ad-hoc signed DMG (the default)
 #   scripts/build-connector-dmg.sh --skip-notarize  # Developer ID DMG, no notary submit
-#   scripts/build-connector-dmg.sh --local          # ad-hoc signed DMG, no notary submit
+#   scripts/build-connector-dmg.sh --developer-id   # Developer ID DMG + notarization
+#
+# --local is the default because release.yml runs this on a hosted macOS runner
+# with no Developer ID certificate and no notary profile; defaulting to a signed
+# build would fail every CI release.
 #
 # Env overrides:
 #   SCHEME                   Xcode scheme (default: Nocturne)
@@ -23,11 +27,12 @@ set -euo pipefail
 # Derived from nocturne-connector's scripts/build-macos-dmg.sh (Apache-2.0),
 # adapted to the vendored tree's layout and output naming.
 
-SKIP_NOTARIZE=0
-LOCAL_BUILD=0
+SKIP_NOTARIZE=1
+LOCAL_BUILD=1
 for arg in "$@"; do
   case "$arg" in
-    --skip-notarize) SKIP_NOTARIZE=1 ;;
+    --skip-notarize) LOCAL_BUILD=0; SKIP_NOTARIZE=1 ;;
+    --developer-id) LOCAL_BUILD=0; SKIP_NOTARIZE=0 ;;
     --local) LOCAL_BUILD=1; SKIP_NOTARIZE=1 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac

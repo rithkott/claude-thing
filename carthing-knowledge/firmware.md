@@ -1,5 +1,17 @@
 # Nocturne firmware image (`nocturne/` repo)
 
+> **Nocturne 4.0-era.** 2.0.0 targets **4.1**, which moved to a Yocto monorepo
+> (`usenocturne/nocturne`: `crates/daemon`, `packages/ui`, `image/`), switched
+> userspace from armv7 to **aarch64**, replaced the flat `system_[ab].ext2`
+> slots with a GPT `superbird.wic` plus a `bandaid.ext4` overlay, and moved the
+> webapp root from `/etc/nocturne/ui` to `/usr/lib/nocturne/webapps/ui`.
+> `nocturned` and `nocturne-ui` are archived. The device *behaviour* recorded
+> below — the :5000 envelope, the MsgPack/SPP wire format, input handling, the
+> hardware itself — is unchanged and still correct.
+>
+> **For 4.1 specifics, read `docs/rebase-4.1/NOTES.md` instead of re-deriving
+> them.** It is the researched record, with the command that proves each claim.
+
 Buildroot `BR2_EXTERNAL` tree. Only `external/`, `configs/`, `scripts/`, `resources/` are Nocturne-specific; `buildroot/` is an unpopulated submodule of upstream Buildroot (`.gitmodules:1-3`).
 
 **Target:** Amlogic S905D2 ("superbird"), Mali-G31 GPU. Userspace is **32-bit armv7 hard-float** (`BR2_arm` + `BR2_cortex_a53` + `BR2_ARM_EABIHF`, `configs/nocturne_defconfig:27,63-71,122,157,165`) on a stock **arm64 4.9 vendor kernel** — chosen to stay ABI-compatible with stock 32-bit blobs (libMali, Weston, Chromium). Toolchain: Buildroot-internal glibc, GCC 13.4.0.
