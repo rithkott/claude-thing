@@ -427,7 +427,9 @@ final class RPCManager: ObservableObject {
                 (.string("version"), .string(AppConfig.connectorVersion))
             ])
 
-        case "spotify.auth.getStatus":
+        // Answered here rather than through the registry, so it needs the alias
+        // spelling explicitly.
+        case "spotify.auth.getStatus", "spotify.auth.get_status":
             return spotifyAuthPayload()
 
         case "device.ota.check":

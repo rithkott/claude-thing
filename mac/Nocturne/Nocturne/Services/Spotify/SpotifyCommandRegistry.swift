@@ -7,6 +7,29 @@ final class SpotifyCommandRegistry {
     private let core: SpotifyCore
     private var handlers: [String: Handler] = [:]
 
+    // 4.1 canonicalised these six to snake_case and only down-converts to
+    // camelCase for companions that declare platform "web" — which this app
+    // does, deliberately (see RELAY-adjacent note in RPCManager.sendAppReady:
+    // changing that string is what would actually break them). So camelCase is
+    // what arrives today and stays the registry's key; this map exists so a
+    // daemon that ever sends the canonical spelling is understood too.
+    //
+    // Mirrors LEGACY_SPOTIFY_COMMAND_ALIASES in spotify-commands.ts, inverted:
+    // upstream registers snake_case and folds camelCase onto it, we register
+    // camelCase and fold snake_case onto that.
+    private static let canonicalAliases: [String: String] = [
+        "spotify.artist.top_tracks": "spotify.artist.topTracks",
+        "spotify.auth.get_status": "spotify.auth.getStatus",
+        "spotify.me.recently_played": "spotify.me.recentlyPlayed",
+        "spotify.me.top_artists": "spotify.me.topArtists",
+        "spotify.me.top_tracks": "spotify.me.topTracks",
+        "spotify.radio.top_mix": "spotify.radio.topMix",
+    ]
+
+    static func normalize(_ command: String) -> String {
+        canonicalAliases[command] ?? command
+    }
+
     init(core: SpotifyCore) {
         self.core = core
         registerHandlers()
@@ -78,7 +101,7 @@ final class SpotifyCommandRegistry {
     }
 
     func supports(_ command: String) -> Bool {
-        handlers[command] != nil
+        handlers[Self.normalize(command)] != nil
     }
 
     var supportedCommands: [String] {
@@ -86,7 +109,8 @@ final class SpotifyCommandRegistry {
     }
 
     func dispatch(_ command: String, params: [String: Any]) async throws -> Any? {
-        guard let handler = handlers[command] else {
+        let normalized = Self.normalize(command)
+        guard let handler = handlers[normalized] else {
             throw SpotifyAPIError("Unknown Spotify command: \(command)")
         }
         return try await handler(params)
