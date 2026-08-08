@@ -156,14 +156,15 @@ jobs:
         with:
           ref: ${{ needs.meta.outputs.sha }}
 
-      # The DMG is the connector plus our relay patch; it only changes when the
-      # patch sources or DMG_EPOCH do, so an unchanged one is reused verbatim.
+      # The connector is vendored at mac/Nocturne/, so the DMG changes only
+      # when that tree, the build script or DMG_EPOCH does — an unchanged one is
+      # reused verbatim.
       - name: restore the DMG
         id: dmg-cache
         uses: actions/cache@v4
         with:
           path: dist/*.dmg
-          key: dmg-${{ env.DMG_EPOCH }}-${{ hashFiles('patches/**', 'mac/**', 'scripts/build-connector-dmg.sh') }}
+          key: dmg-${{ env.DMG_EPOCH }}-${{ hashFiles('mac/**', 'scripts/build-connector-dmg.sh') }}
 
       - name: build the connector DMG
         if: steps.dmg-cache.outputs.cache-hit != 'true'
