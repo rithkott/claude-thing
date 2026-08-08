@@ -102,13 +102,22 @@ final class RPCManager: ObservableObject {
         client.onEvent = { [weak self] topic, data in
             self?.handleEvent(topic: topic, data: data)
         }
+        // Throws rather than returning: a dropped or half-written message used
+        // to look identical to a delivered one from RPCClient's side, so a call
+        // waiting on the reply sat out its full 30 s timeout instead of failing
+        // at once. Mirrors rpc-client.ts's "Write attempted on closed
+        // connection".
         client.onWrite = { [weak self, weak channel] data in
-            guard let channel else { return }
-            guard channel.isOpen() else { return }
+            guard let channel else { throw RPCError.write("channel deallocated") }
+            guard channel.isOpen() else { throw RPCError.write("channel closed") }
             let mtu = Int(channel.getMTU())
             let segment = mtu > 0 ? mtu : 1000
+            var failure: RPCError?
             data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
-                guard let base = raw.baseAddress else { return }
+                guard let base = raw.baseAddress else {
+                    failure = .write("unreadable buffer")
+                    return
+                }
                 var offset = 0
                 while offset < data.count {
                     let len = min(segment, data.count - offset)
@@ -116,11 +125,13 @@ final class RPCManager: ObservableObject {
                     let rc = channel.writeSync(ptr, length: UInt16(len))
                     if rc != kIOReturnSuccess {
                         self?.log.error("RFCOMM writeSync failed rc=\(rc, privacy: .public) len=\(len, privacy: .public) mtu=\(mtu, privacy: .public)")
-                        break
+                        failure = .write("writeSync rc=\(rc) after \(offset) of \(data.count) bytes")
+                        return
                     }
                     offset += len
                 }
             }
+            if let failure { throw failure }
         }
 
         connections[key] = Connection(address: address, channel: channel, client: client)

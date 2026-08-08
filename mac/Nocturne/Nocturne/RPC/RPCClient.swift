@@ -8,7 +8,9 @@ final class RPCClient {
 
     var onCall: CallHandler?
     var onEvent: EventHandler?
-    var onWrite: ((Data) -> Void)?
+    // Throwing on purpose: a write that cannot reach the channel must fail the
+    // message, not silently truncate it. See RPCError.write.
+    var onWrite: ((Data) throws -> Void)?
 
     private let log = Log.make(for: "RPCClient")
     private let id: String
@@ -142,7 +144,11 @@ final class RPCClient {
             }
             let reply: RPCMessage = response.error.map { .error(id: id, error: $0) }
                 ?? .result(id: id, result: response.result ?? .nilValue)
-            try? await send(reply, priority: Self.priorityForResponse(to: method))
+            do {
+                try await send(reply, priority: Self.priorityForResponse(to: method))
+            } catch {
+                log.error("reply to \(method, privacy: .public) not sent: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 
@@ -176,7 +182,11 @@ final class RPCClient {
     }
 
     func sendEvent(topic: String, data: MessagePackValue) async {
-        try? await send(.event(topic: topic, data: data), priority: Self.priority(forMethod: topic))
+        do {
+            try await send(.event(topic: topic, data: data), priority: Self.priority(forMethod: topic))
+        } catch {
+            log.error("event \(topic, privacy: .public) not sent: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func send(_ msg: RPCMessage, priority: SendPriority) async throws {
@@ -190,18 +200,19 @@ final class RPCClient {
         if priority == .normal {
             try await acquireSendLock(.normal)
             defer { releaseSendLock() }
-            for chunk in chunks { writeLine(chunk) }
+            for chunk in chunks { try writeLine(chunk) }
             return
         }
         for chunk in chunks {
             try await acquireSendLock(.bulk)
-            writeLine(chunk)
-            releaseSendLock()
+            defer { releaseSendLock() }
+            try writeLine(chunk)
         }
     }
 
-    private func writeLine(_ chunk: Data) {
-        onWrite?(chunk.base64EncodedData() + Data([0x0A]))
+    private func writeLine(_ chunk: Data) throws {
+        guard let onWrite else { throw RPCError.write("no channel attached") }
+        try onWrite(chunk.base64EncodedData() + Data([0x0A]))
     }
 
     private func acquireSendLock(_ priority: SendPriority) async throws {
@@ -297,7 +308,11 @@ final class RPCClient {
         // whole.
         guard (try? await acquireSendLock(.normal)) != nil else { return }
         defer { releaseSendLock() }
-        writeLine(retained.chunks[chunkIndex])
+        do {
+            try writeLine(retained.chunks[chunkIndex])
+        } catch {
+            log.error("retransmit failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     func cleanup() {
@@ -332,12 +347,14 @@ enum RPCError: LocalizedError {
     case remote(String)
     case timeout(String)
     case disconnected
+    case write(String)
 
     var errorDescription: String? {
         switch self {
         case .remote(let m): return m
         case .timeout(let method): return "RPC call timed out: \(method)"
         case .disconnected: return "RPC channel disconnected"
+        case .write(let reason): return "Write attempted on closed connection: \(reason)"
         }
     }
 }
