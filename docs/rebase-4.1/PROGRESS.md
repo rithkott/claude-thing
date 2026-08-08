@@ -18,7 +18,7 @@ remainder under **Next action** below. Never end a session with a dirty tree.
 
 ## Next action
 
-> Phase 5 — vendor the Mac app into mac/Nocturne/.
+> Phase 6 — port v2.1.0 into the Swift app, starting with R1.
 
 ## Worktree setup (needed once per fresh worktree)
 
@@ -62,11 +62,16 @@ ln -s ../../claude-thing/emulator/node_modules   emulator/node_modules
       deleted files:** `release.yml` lost the cross-compile job + `NOCTURNED_EPOCH` cache key,
       `NOCTURNE_IMAGE_TAG` → `v4.1.0`, `--nocturned` flag dropped; `protocol/claude-protocol.md`
       and `patches/swift-connector.md` now describe the forwarding registry.
-- [ ] **5 — Vendor the Mac app.** Copy `macos/` from `nocturne-connector@41f4d048…` to
-      `mac/Nocturne/`; fold `patches/swift/ClaudeRelayService.swift` in as a normal file and write
-      its call sites directly into `RPCManager.swift`, `NocturneApp.swift`, `SessionStore.swift`,
-      `Views/Pages/SettingsView.swift`. Drop `CONNECTOR_REF`, the clone, and the ten anchored Python
-      edits in `build-connector-dmg.sh:115-281`. Keep Apache-2.0 LICENSE + headers.
+- [x] **5 — Vendor the Mac app.** `mac/Nocturne/` is `macos/@41f4d048` verbatim + its Apache-2.0
+      LICENSE; the eleven edits are tracked source and `ClaudeRelayService.swift` a normal file
+      under `Services/` (the pbxproj needed no change — `objectVersion 77` file-system-synchronized
+      root group). `build-connector-dmg.sh` lost `CONNECTOR_REF`/clone/patch step and absorbed
+      upstream's `build-macos-dmg.sh`; it now clears xattrs off the in-repo source and refuses a
+      tree with no `ClaudeRelayService.swift`. `release.yml` DMG cache key drops `patches/**`.
+      **Extra:** `patches/swift-connector.md` (288 lines duplicating now-tracked source) became
+      `mac/Nocturne/RELAY.md`, keeping only the rationale; `mac/Nocturne/README.md` records
+      provenance and licensing. Verified: `xcodebuild` Release succeeds and the binary carries the
+      relay (Nocturne 2.0.5).
 - [ ] **6 — Port v2.1.0 into the Swift app.** One commit per item; REQUIRED before FEATURE.
     - [ ] R1 `RPCClient.swift` — two-tier normal/bulk send lock, drop the 5 ms inter-chunk sleep
     - [ ] R2 `RPCClient.swift` — lock `retransmitChunk`, add the 2-minute retention TTL
