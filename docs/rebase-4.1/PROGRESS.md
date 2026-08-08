@@ -18,13 +18,25 @@ remainder under **Next action** below. Never end a session with a dirty tree.
 
 ## Next action
 
-> Phase 9 — claim 2.0.0, open the PR against `dev`, merge, watch `release.yml`.
+> **All nine phases are done and shipped — the only thing left is hardware.**
 >
-> Carry forward: the hardware leg of phase 8 is **not done** — it needs a real Car
-> Thing. Flash `nocturne_v4.1.0_claude_2.0.0.zip`, install the DMG, and confirm
-> `bridge.status` reports `bt.connected` plus a live `claude.sessions.update`.
-> First thing to suspect if it is quiet: 4.1 refuses SPP from unpaired peers
-> (NOTES §5e), and a phone connecting after the Mac steals the app route (§2).
+> Download `nocturne_v4.1.0_claude_2.0.1-dev.zip` from the `2.0.1-dev` release,
+> flash it, install `Nocturne-claude-2.0.5-local.dmg` from the same release, and
+> confirm `bridge.status` reports `bt.connected` plus a live
+> `claude.sessions.update`. Everything below it was verified without a device;
+> nothing in this rebase has run on one.
+>
+> If the device is quiet, suspect these before anything else:
+> - 4.1 refuses SPP from **unpaired** peers unless an Android wake grant is
+>   armed, and grants are never armed for Macs (NOTES §5e).
+> - Only one companion route is active at a time and the newest `app.ready`
+>   wins, so a phone connecting after the Mac silences `claude.*` (NOTES §2).
+> - `"No active app session"` back from a `claude.*` call means no companion is
+>   registered at all; `"Unknown method"` means the forward path works and the
+>   Mac app declined it.
+>
+> Do **not** run `promote.yml` until that passes — production is a deliberate
+> act and 2.0.1 has only ever been a dev prerelease.
 
 ## Worktree setup (needed once per fresh worktree)
 
@@ -122,10 +134,15 @@ ln -s ../../claude-thing/emulator/node_modules   emulator/node_modules
       path instead of the version.
       - [ ] **Hardware — NOT DONE, needs the device.** Flash the injected zip, install the DMG,
             confirm `bridge.status` → `bt.connected` and a live `claude.sessions.update`.
-- [ ] **9 — Claim, clean, ship.** Rebase on `origin/dev`, append the `2.0.0` row to `RELEASES.md`,
-      `release: claim 2.0.0 — nocturne-41`, `gh pr create --fill --base dev`, squash-merge, watch
-      `release.yml`, refresh the GitNexus index, remove the worktree. Decide whether
-      `docs/rebase-4.1/` stays.
+- [x] **9 — Claim, clean, ship.** `2.0.0` claimed and merged as #67; GitNexus reindexed; worktree
+      removed. **`docs/rebase-4.1/` stays** — `NOTES.md` is researched upstream fact that would cost
+      a day to re-derive, and this ledger is now the record of what shipped and what is still owed.
+      **The 2.0.0 release never published:** the firmware job died on `dist/` not existing, which
+      `scripts/build-nocturned.sh` used to create as a side effect before phase 4 deleted it.
+      Fixed and shipped as **`2.0.1-dev`** (#68) — the injector creates its own output directory.
+      So `2.0.0` is a claimed version with no release, and `2.0.1-dev` is the first build of this
+      work that exists: `nocturne_v4.1.0_claude_2.0.1-dev.zip` (423 MB) +
+      `Nocturne-claude-2.0.5-local.dmg` (5 MB), pinned to the #68 merge commit.
 
 ## Surprises log
 
