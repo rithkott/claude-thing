@@ -18,7 +18,7 @@ remainder under **Next action** below. Never end a session with a dirty tree.
 
 ## Next action
 
-> Phase 6 — port v2.1.0 into the Swift app, starting with R1.
+> Phase 7 — release plumbing and docs.
 
 ## Worktree setup (needed once per fresh worktree)
 
@@ -72,18 +72,28 @@ ln -s ../../claude-thing/emulator/node_modules   emulator/node_modules
       `mac/Nocturne/RELAY.md`, keeping only the rationale; `mac/Nocturne/README.md` records
       provenance and licensing. Verified: `xcodebuild` Release succeeds and the binary carries the
       relay (Nocturne 2.0.5).
-- [ ] **6 — Port v2.1.0 into the Swift app.** One commit per item; REQUIRED before FEATURE.
-    - [ ] R1 `RPCClient.swift` — two-tier normal/bulk send lock, drop the 5 ms inter-chunk sleep
-    - [ ] R2 `RPCClient.swift` — lock `retransmitChunk`, add the 2-minute retention TTL
-    - [ ] R3 Spotify command alias map (accept camelCase **and** snake_case)
-    - [ ] R5 `RPCManager.swift:94-113` — surface closed-channel write errors instead of truncating
-    - [ ] F3 `ota.package_ready` negotiation (1800 B → 256 KiB transfer windows)
-    - [ ] F4 `parseDeviceInfo` gains `imageVersion` / `bandaidVersion`
-    - [ ] F1/F2 `CarThingOTAService.swift` + `OTATransfer.swift` (v2 manifest OTA)
-    - [ ] F5/F6 auth: status-first classification, retryable 408/425/429/5xx
-    - [ ] F7 Bluetooth reconnect backoff ladder
-    - [ ] F8/F9 env-overridable OTA URL, `readChunk` window guard
-    - **R4 is a constraint, not a task: do NOT change `platform: "web"`** (NOTES §5b)
+- [x] **6 — Port v2.1.0 into the Swift app.** One commit per item, each building clean.
+    - [x] R1 two-tier normal/bulk send lock; the lock is handed to the next waiter rather than
+          unlocked, so bulk cannot starve normal. 5 ms sleep gone; `call()` now fails on send error
+    - [x] R2 `retransmitChunk` takes the lock (so it is `async`; the `chunk.retransmit_request`
+          handler hands it to a Task) and retained chunks expire at the 2-minute TTL
+    - [x] R3 alias map, **inverted** vs upstream: we register camelCase and fold snake_case onto it
+    - [x] R5 `onWrite` throws; `RPCManager`'s RFCOMM writer reports which failure mode and how far
+          a partial write got
+    - [x] F4 `imageVersion`/`bandaidVersion` on `CarThingInfo`; `parseDeviceInfo` reads both
+          spellings of every multi-word field
+    - [x] F8/F9 `NOCTURNE_OTA_SERVER_URL` override; `OTATransfer.requireWindow` bounds `readChunk`
+    - [x] F1/F2 `CarThingOTAService.swift` + `OTATransfer.swift`
+    - [x] F3 the full v2 OTA event surface in `RPCManager` + `ota.package_ready` negotiation
+    - [x] F5/F6 status-first auth classification; 408/425/429/5xx never sign out
+    - [x] F7 reconnect ladder 1/2/4/8/16/30 s on failures; the in-flight poll stays flat at 1 s
+    - [x] R4 constraint held — `RPCManager.swift:623` still `platform: "web"`
+    - **Reordered from the plan:** F4 and F8/F9 landed before F1/F2, and F3 after, because F3's
+      handlers call `CarThingOTAService` and `OTATransfer.maxWindowBytes` — doing F3 first would
+      have meant writing it against the legacy `.swu` path and then rewriting it.
+    - **Correction to NOTES §5f:** the transfer window is **128 KiB**, not 256 KiB.
+      `MAX_OTA_TRANSFER_WINDOW_BYTES` in `ota-transfer.ts` is `128 * 1024`; 256 KiB is the
+      *device-side* `OTA_MAX_PULL_WINDOW_SIZE`. The connector advertises the tighter of the two.
 - [ ] **7 — Release plumbing and docs.** `release.yml:32` → `v4.1.0`, drop the nocturned job and its
       cache keys; DMG job builds the vendored tree; `README.md:7-8,12,108`;
       `protocol/claude-protocol.md:245-248`; `carthing-knowledge/*`.
