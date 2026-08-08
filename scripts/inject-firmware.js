@@ -280,6 +280,10 @@ console.log(`device app:  ${files.length} files, ${payloadKb} KB from device-app
 
 const version = (/v\d+\.\d+\.\d+/.exec(path.basename(srcZip)) || ['unknown'])[0];
 const outZip = arg('out') || path.join(path.dirname(srcZip), `nocturne_${version}_claude.zip`);
+// --out names a directory that may not exist. In CI it is dist/, which used to
+// be created as a side effect of the nocturned cross-build; 2.0.0 deleted that
+// job and copyFileSync started failing with a bare ENOENT naming the source.
+fs.mkdirSync(path.dirname(path.resolve(outZip)), { recursive: true });
 fs.copyFileSync(srcZip, outZip);
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-inject-'));
