@@ -18,7 +18,7 @@ remainder under **Next action** below. Never end a session with a dirty tree.
 
 ## Next action
 
-> Phase 3 — port the emulator onto the 4.1 image layout.
+> Phase 4 — retire the nocturned patches.
 
 ## Worktree setup (needed once per fresh worktree)
 
@@ -44,10 +44,16 @@ ln -s ../../claude-thing/emulator/node_modules   emulator/node_modules
       `index.html` + `switch.js`) with the graft present, bandaid too, and a region-by-region
       SHA-256 shows *only* `root_a`/`root_b` changed — GPT, `env`, `boot_a`, `boot_b` and the wic's
       bandaid region are byte-identical, wic size unchanged at 1,430,275,072.
-- [ ] **3 — Emulator.** `emulator/src/firmware.js` onto the GPT-carve path + new UI dir; no
-      `version.json` in 4.1 so the filename regex is the only version source;
-      `deploy-dev.js:75-95` new path; `ws-server.js` must **forward** unknown methods rather than
-      answer `"Unknown method"`, and `smoke-ws.js:33-36` asserts the old behaviour — invert it.
+- [x] **3 — Emulator.** `firmware.js` carves `root_a`/`root_b` out of `superbird.wic` by GPT
+      offset, streaming (`unzip -p | tail -c | head -c`) so the 1.43 GB image never hits disk;
+      cold extract ~22s. UI dir `/usr/lib/nocturne/webapps/ui`; version from the zip filename
+      (minus its extension). `ws-server.js` forwards unknown methods to the registered app and
+      answers `"No active app session"` when there is none — `"Unknown method"` now comes only
+      from the phone sim; `smoke-ws.js` asserts both branches. **Extra, not in the original
+      plan:** 4.1's UI dropped `vite-plugin-legacy`, so `EMU_FORCE_LEGACY` would have stripped
+      the only entry script and served a blank page — `static-server.js` now applies the rewrite
+      only to a bundle that carries a `nomodule` twin. Verified live on the emulator: stock 4.1
+      UI and the grafted `/claude/` app both render, WS smoke green.
 - [ ] **4 — Retire the nocturned patches.** Delete `patches/nocturned-claude-forward.patch` (4.1
       forwards natively, NOTES §2), `patches/nocturned-spp-reregister.patch` (deferred, NOTES §6),
       `scripts/build-nocturned.sh`, `scripts/nocturned.Dockerfile`. Retarget or drop
