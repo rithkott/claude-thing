@@ -280,7 +280,9 @@ as persisting:
 1. Enable the toggle; the daemon's webpage (`http://127.0.0.1:8790`) flips
    *Nocturne connector* to **relaying** and fills in the Bluetooth rows.
 2. On the device, hold preset 1 + preset 4 for one second → Claude Mode; the
-   session list should populate (requires `patches/nocturned-claude-forward.patch`
-   in the running firmware, otherwise requests answer "Unknown method").
+   session list should populate. 4.1 forwards unknown methods to the registered
+   companion with no allow-list, so this needs no daemon patch; `"No active app
+   session"` back means no companion is registered (another phone may have
+   stolen the route with a later `app.ready`).
 3. Trigger a permission prompt in a Claude Code session on the Mac → it appears
    fullscreen on the device; preset 1 allows, preset 4 denies, back skips.

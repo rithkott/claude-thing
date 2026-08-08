@@ -3,20 +3,22 @@ Optional polish: add a "Claude Mode" entry to nocturne-ui's General settings.
 The primary mode switch needs no source patch — `scripts/inject-firmware.js`
 grafts `switch.js` into the built music UI, and holding preset 1 + preset 4 for
 one second toggles between `/` and `/claude/`. This patch is for users who build
-nocturne-ui from source anyway and want a visible menu entry too.
+the UI from source anyway and want a visible menu entry too.
 
-Apply in a checkout of https://github.com/usenocturne/nocturne-ui:
+`usenocturne/nocturne-ui` is archived; since 4.1 the UI lives in the monorepo as
+`packages/ui`, rewritten in TypeScript with MobX and react-router 7. Apply in a
+checkout of https://github.com/usenocturne/nocturne:
 
-    cd /path/to/nocturne-ui
+    cd /path/to/nocturne
     git apply /path/to/claude-thing/patches/nocturne-ui-claude-mode.patch
 
-Two edits in `src/components/settings/Settings.jsx`, both mirroring the existing
-`factory-reset` action item:
+Two edits in `packages/ui/src/components/settings/Settings.tsx`, both mirroring
+the existing `factory-reset` action item:
 
-1. In the General section's `items` array (immediately before the
-   `id: "factory-reset"` entry, ~line 100):
+1. In `settingsStructure.general.items` (immediately before the
+   `id: "factory-reset"` entry, ~line 119):
 
-```jsx
+```tsx
       {
         id: "claude-mode",
         title: "Claude Mode",
@@ -27,9 +29,9 @@ Two edits in `src/components/settings/Settings.jsx`, both mirroring the existing
       },
 ```
 
-2. In `handleAction` (~line 670), a new case beside `factoryReset`:
+2. In `handleAction` (~line 365), a new case beside `factoryReset`:
 
-```jsx
+```tsx
       case "claudeMode":
         try {
           window.localStorage.setItem("claude-mode", "1");
@@ -38,10 +40,15 @@ Two edits in `src/components/settings/Settings.jsx`, both mirroring the existing
         break;
 ```
 
-No other changes. `/claude/` is served from the same origin by nocturned's
-static server, so this is a plain same-origin navigation; the Claude app's
-"Exit to Music" action (and the preset chord) clears the `claude-mode` flag so
-the device boots back into music mode.
+No other changes. `handleAction` is still an untyped `(action)` switch in 4.1,
+so neither edit needs a type annotation, and the item objects are plain literals
+in the same shape `factory-reset` uses.
+
+`/claude/` is served from the same origin by the daemon's static server
+(`crates/daemon/src/http/webapp.rs`, a `ServeDir` with root-index SPA fallback),
+so this is a plain same-origin navigation; the Claude app's "Exit to Music"
+action (and the preset chord) clears the `claude-mode` flag so the device boots
+back into music mode.
 
 NOTE: documented as an edit rather than a byte-exact diff because line numbers
-in Settings.jsx shift between nocturne releases.
+in Settings.tsx shift between nocturne releases.

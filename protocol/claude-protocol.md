@@ -242,7 +242,20 @@ State machine (daemon-side): `busy` while tool/response activity within 10 s;
 
 ## Hardware note
 
-nocturned only forwards allow-listed methods to the phone. `claude.*` requests
-on real hardware require the one-arm patch in
-`patches/nocturned-claude-forward.patch`. Phone→UI **events** need no nocturned
-change (verbatim passthrough).
+Nocturne 4.1 ships stock: `claude.*` needs no daemon patch. The daemon owns no
+method allow-list — `handle_incoming_message` answers the methods it implements
+and forwards **everything else** verbatim to whichever companion the most recent
+`app.ready` registered (`crates/daemon/src/http/websocket.rs`), so `claude.*`
+reaches the Mac app unmodified. Phone→UI **events** are likewise passed through
+untouched.
+
+Two consequences of that registry worth knowing on hardware:
+
+- Only one companion route is active at a time and the newest `app.ready` wins,
+  so an iPhone connecting after the Mac steals the route and silences
+  `claude.*`. Check this first if the device goes quiet.
+- With no companion registered, unknown methods answer `"No active app
+  session"` rather than `"Unknown method"` — the latter is the companion's own
+  fallthrough, so seeing it means the forward path is working.
+
+Before 4.1 this required patching the daemon's allow-list; that patch is gone.
